@@ -114,7 +114,7 @@ impl ChatApp {
     }
 
     fn save_chat_list(&self) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("正在保存聊天列表...");
+        debug!("��在保存聊天列表...");
         let json = serde_json::to_string_pretty(&self.chat_list)?;
         std::fs::write("chat_list.json", json)?;
         debug!("聊天列表保存成功");
@@ -145,101 +145,38 @@ impl ChatApp {
         }
     }
 
-    async fn generate_title(&self, messages: &[Message]) -> Result<String, Box<dyn std::error::Error + Send>> {
-        debug!("正在生成对话标题...");
-        let content = messages.first()
-            .map(|msg| msg.content.clone())
-            .unwrap_or_default();
-
-        let messages = vec![
-            json!({
-                "role": "system",
-                "content": "请根据用户的输入生成一个简短的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
-            }),
-            json!({
-                "role": "user",
-                "content": content
-            }),
-        ];
-
-        let response = self.client
-            .post(&self.api_endpoint)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&json!({
-                "model": self.model_name,
-                "messages": messages,
-                "temperature": 0.7,
-                "max_tokens": 60
-            }))
-            .send()
-            .await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-
-        let response_json = response.json::<serde_json::Value>().await
-            .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send>)?;
-
-        let title = response_json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("新对话")
-            .trim()
-            .to_string();
-            
-        debug!("成功生成标题: {}", title);
-        Ok(title)
-    }
-
     fn send_message(&mut self) {
         let user_input = std::mem::take(&mut self.input_text);
         let image_path = self.selected_image.take();
         
+        // 检查是否需要生成标题（在添加新消息之前）
+        let should_generate_title = if let Some(current_id) = &self.chat_list.current_chat_id {
+            self.chat_list.chats
+                .iter()
+                .find(|c| &c.id == current_id)
+                .map(|chat| !chat.has_been_renamed && chat.messages.is_empty())
+                .unwrap_or(false)
+        } else {
+            false
+        };
+
+        debug!("准备发送消息，是否包含图片: {}", image_path.is_some());
+
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
             self.new_chat();
         }
 
-        debug!("准备发送消息");
-        
-        // 检查是否需要生成标题（在添加新消息之前）
-        let should_generate_title = if let Some(current_id) = &self.chat_list.current_chat_id {
-            let should = self.chat_list.chats
-                .iter()
-                .find(|c| &c.id == current_id)
-                .map(|chat| !chat.has_been_renamed && chat.messages.is_empty())
-                .unwrap_or(false);
-            
-            debug!("检查是否需要生成标题: {}", should);
-            should
-        } else {
-            false
-        };
-
-        // 构建消息
-        let mut messages = vec![
-            json!({
-                "role": "system",
-                "content": self.system_prompt.clone()
-            })
-        ];
-
-        // 添加历史消息
-        for msg in &self.chat_history.0 {
-            if let Ok(content) = msg.to_api_content() {
-                messages.push(json!({
-                    "role": msg.role,
-                    "content": content
-                }));
-            } else {
-                error!("处理历史消息失败");
-            }
-        }
-
-        // 处理新消息
+        // 处理图片
         let cached_image_path = if let Some(path) = image_path {
+            debug!("开始处理图片: {:?}", path);
             match utils::copy_to_cache(&path) {
-                Ok(cache_path) => Some(cache_path),
+                Ok(cache_path) => {
+                    debug!("图片已复制到缓存: {:?}", cache_path);
+                    Some(cache_path)
+                }
                 Err(e) => {
-                    error!("制图片到缓存失: {}", e);
+                    error!("处理图片失败: {}", e);
                     None
                 }
             }
@@ -253,14 +190,53 @@ impl ChatApp {
             cached_image_path.map(|p| p.to_string_lossy().to_string()),
         );
 
-        if let Ok(content) = new_message.to_api_content() {
-            messages.push(json!({
-                "role": "user",
-                "content": content
-            }));
+        // 构建消息数组
+        let mut messages = vec![
+            json!({
+                "role": "system",
+                "content": self.system_prompt.clone()
+            })
+        ];
+
+        // 添加历史消息
+        for msg in &self.chat_history.0 {
+            match msg.to_api_content() {
+                Ok(content) => {
+                    messages.push(json!({
+                        "role": msg.role,
+                        "content": content
+                    }));
+                }
+                Err(e) => {
+                    error!("处理历史消息失败: {}", e);
+                }
+            }
         }
 
-        self.chat_history.0.push(new_message);
+        // 添加新消息
+        match new_message.to_api_content() {
+            Ok(content) => {
+                messages.push(json!({
+                    "role": "user",
+                    "content": content
+                }));
+                self.chat_history.0.push(new_message);
+            }
+            Err(e) => {
+                error!("处理新消息失败: {}", e);
+                return;
+            }
+        }
+
+        // 构建请求payload
+        let payload = json!({
+            "model": self.model_name.clone(),
+            "messages": messages,
+            "temperature": self.temperature,
+            "stream": true
+        });
+
+        debug!("发送请求payload: {}", serde_json::to_string_pretty(&payload).unwrap_or_default());
 
         // 建立发送通道
         let (tx, rx) = mpsc::unbounded_channel();
@@ -420,23 +396,6 @@ impl ChatApp {
             }
             _ => {}
         }
-    }
-
-    // 清理不再使用的纹理缓存
-    fn clean_texture_cache(&mut self) {
-        let mut used_paths = std::collections::HashSet::new();
-        
-        // 收集所有正在使用的图片路径
-        for chat in &self.chat_list.chats {
-            for msg in &chat.messages {
-                if let Some(path) = &msg.image_path {
-                    used_paths.insert(path.clone());
-                }
-            }
-        }
-        
-        // 移除未使用的纹理
-        self.texture_cache.retain(|path, _| used_paths.contains(path));
     }
 
     fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {

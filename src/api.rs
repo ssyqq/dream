@@ -77,18 +77,18 @@ pub async fn send_request(
                         for line in text.lines() {
                             
                             incomplete_data.push_str(line);
-                            debug!("处理数据行: {}", incomplete_data);
+                            // debug!("处理数据行: {}", incomplete_data);
 
-                            if line.contains("data: ") {
-                                let index = line.find("data: ").unwrap();
-                                let data = &line[index+6..];
+                            if incomplete_data.contains("data: ") {
+                                let index = incomplete_data.find("data: ").unwrap();
+                                let data = &incomplete_data[index + 6..];
                                 if data == "[DONE]" {
                                     debug!("收到结束标记: [DONE]");
                                     let _ = tx.send("__STREAM_DONE__".to_string());
                                     return Ok(());
                                 }
 
-                                match serde_json::from_str::<JsonValue>(&incomplete_data[6..]) {
+                                match serde_json::from_str::<JsonValue>(data) {
                                     Ok(json) => {
                                         incomplete_data.clear();
                                         

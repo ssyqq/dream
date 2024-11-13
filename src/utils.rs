@@ -5,7 +5,9 @@ use std::io;
 use env_logger::Builder;
 use chrono::Local;
 use std::io::Write;
-use log::LevelFilter;
+use log::{LevelFilter, debug, error};
+use std::time::Instant;
+use image::GenericImageView;
 
 #[derive(Debug)]
 pub enum ImageError {
@@ -50,22 +52,69 @@ pub fn ensure_cache_dir() -> io::Result<PathBuf> {
 }
 
 pub fn copy_to_cache(source_path: &Path) -> Result<PathBuf, ImageError> {
+    let start = Instant::now();
+    
     let cache_dir = ensure_cache_dir()?;
     let file_name = format!("{}.jpg", Uuid::new_v4());
     let cache_path = cache_dir.join(&file_name);
     
+    // 计时：图片加载
+    let load_start = Instant::now();
     let img = image::open(source_path)
         .map_err(ImageError::ImageError)?;
+    debug!("图片加载耗时: {:?}", load_start.elapsed());
     
-    img.save(&cache_path)
-        .map_err(ImageError::ImageError)?;
+    // 计时：转换格式和压缩
+    let convert_start = Instant::now();
     
+    // 获取原始尺寸
+    let (width, height) = img.dimensions();
+    
+    // 先缩放，再转换格式，减少处理的数据量
+    let img = if width > 800 || height > 800 {
+        let scale = 800.0 / width.max(height) as f32;
+        let new_width = (width as f32 * scale) as u32;
+        let new_height = (height as f32 * scale) as u32;
+        img.resize(new_width, new_height, image::imageops::FilterType::Nearest)
+    } else {
+        img
+    };
+    
+    // 转换为RGB8
+    let rgb_img = img.into_rgb8();
+    debug!("转换RGB格式耗时: {:?}", convert_start.elapsed());
+    
+    // 计时：保存图片（使用较低的JPEG质量）
+    let save_start = Instant::now();
+    let mut output = std::fs::File::create(&cache_path)?;
+    let mut encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut output, 85);
+    encoder.encode(
+        rgb_img.as_raw(),
+        rgb_img.width(),
+        rgb_img.height(),
+        image::ColorType::Rgb8.into(),
+    ).map_err(ImageError::ImageError)?;
+    debug!("保存图片耗时: {:?}", save_start.elapsed());
+    
+    debug!("总耗时: {:?}", start.elapsed());
     Ok(cache_path)
 }
 
 pub fn get_image_base64(path: &Path) -> io::Result<String> {
+    let start = Instant::now();
+    
+    debug!("开始读取图片文件: {:?}", path);
+    let read_start = Instant::now();
     let image_data = std::fs::read(path)?;
-    Ok(BASE64.encode(&image_data))
+    debug!("读取图片耗时: {:?}", read_start.elapsed());
+    
+    debug!("图片文件大小: {} bytes", image_data.len());
+    let encode_start = Instant::now();
+    let encoded = BASE64.encode(&image_data);
+    debug!("Base64编码耗时: {:?}", encode_start.elapsed());
+    
+    debug!("总耗时: {:?}", start.elapsed());
+    Ok(encoded)
 }
 
 pub fn setup_logger() {

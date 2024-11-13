@@ -2,3 +2,4 @@
 chat_list.json
 dream.toml
 /.cache
+.DS_Store
