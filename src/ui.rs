@@ -818,10 +818,7 @@ impl eframe::App for ChatApp {
 
                                     // 模型名称设置
                                     ui.label("模型名称:");
-                                    if ui.add(TextEdit::singleline(&mut self.model_name)
-                                        .desired_width(ui.available_width() - 60.0)).changed() {
-                                        config_changed = true;
-                                    }
+                                    ui.label(&self.model_name);  // 将输入框改为只读标签
                                     ui.end_row();
 
                                     // System Prompt 设置
