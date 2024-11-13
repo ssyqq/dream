@@ -36,6 +36,7 @@ pub struct ChatApp {
     pub texture_cache: HashMap<String, TextureHandle>,
     pub processing_image: Option<tokio::task::JoinHandle<Result<PathBuf, ImageError>>>,
     pub dark_mode: bool,
+    pub available_models: Vec<String>,
 }
 
 impl Default for ChatApp {
@@ -78,6 +79,7 @@ impl Default for ChatApp {
             texture_cache: HashMap::new(),
             processing_image: None,
             dark_mode: config.chat.dark_mode,
+            available_models: config.api.available_models,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -147,6 +149,7 @@ impl ChatApp {
             texture_cache: HashMap::new(),
             processing_image: None,
             dark_mode: config.chat.dark_mode,
+            available_models: config.api.available_models,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -181,6 +184,7 @@ impl ChatApp {
             api: config::ApiConfig {
                 endpoint: self.api_endpoint.clone(),
                 model: self.model_name.clone(),
+                available_models: self.available_models.clone(),
             },
             chat: config::ChatConfig {
                 system_prompt: self.system_prompt.clone(),
@@ -581,7 +585,7 @@ impl ChatApp {
 
     fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {
         debug!("加载图片: {}", path);
-        // 使用 block_on 执行��步加载
+        // 使用 block_on 执行步加载
         if let Some((width, height, pixels)) = self.runtime_handle.block_on(async {
             self.load_image_async(path).await
         }) {
@@ -625,6 +629,7 @@ impl Clone for ChatApp {
             texture_cache: self.texture_cache.clone(),
             processing_image: None,
             dark_mode: self.dark_mode,
+            available_models: self.available_models.clone(),
         }
     }
 }
@@ -812,7 +817,7 @@ impl eframe::App for ChatApp {
                                     ui.end_row();
 
                                     // 模型名称设置
-                                    ui.label("型名称:");
+                                    ui.label("模型名称:");
                                     if ui.add(TextEdit::singleline(&mut self.model_name)
                                         .desired_width(ui.available_width() - 60.0)).changed() {
                                         config_changed = true;
@@ -849,10 +854,47 @@ impl eframe::App for ChatApp {
                                         config_changed = true;
                                     }
                                     ui.end_row();
+
+                                    // 添加模型管理部分
+                                    ui.label("常用模型:");
+                                    ui.vertical(|ui| {
+                                        // 显示现有模型列表
+                                        let mut models_to_remove = Vec::new();
+                                        for (index, model) in self.available_models.iter().enumerate() {
+                                            ui.horizontal(|ui| {
+                                                ui.label(model);
+                                                if ui.button("🗑").clicked() {
+                                                    models_to_remove.push(index);
+                                                    config_changed = true;
+                                                }
+                                            });
+                                        }
+                                        
+                                        // 删除标记的模型
+                                        for index in models_to_remove.iter().rev() {
+                                            self.available_models.remove(*index);
+                                        }
+
+                                        // 添加新模型的输入框
+                                        static mut NEW_MODEL: String = String::new();
+                                        unsafe {
+                                            ui.horizontal(|ui| {
+                                                let text_edit = ui.text_edit_singleline(&mut NEW_MODEL);
+                                                if ui.button("添加").clicked() && !NEW_MODEL.is_empty() {
+                                                    if !self.available_models.contains(&NEW_MODEL) {
+                                                        self.available_models.push(NEW_MODEL.clone());
+                                                        NEW_MODEL.clear();
+                                                        config_changed = true;
+                                                    }
+                                                }
+                                            });
+                                        }
+                                    });
+                                    ui.end_row();
                                 });
                             
                             if config_changed {
-                                debug!("配置更改，正在保存");
+                                debug!("配置已更改，正在保存");
                                 if let Err(e) = self.save_config(frame) {
                                     error!("保存配置失败: {}", e);
                                 }
@@ -889,7 +931,7 @@ impl eframe::App for ChatApp {
                     
                     // 修改入区域的布局
                     ui.vertical(|ui| {
-                        // 图片上传按钮和文件名显示放在上方
+                        // 图片上传按钮、文件名显示和模型选择放在上方
                         ui.horizontal(|ui| {
                             if ui.button("📎").clicked() {
                                 if let Some(path) = FileDialog::new()
@@ -905,7 +947,7 @@ impl eframe::App for ChatApp {
                                 }
                             }
                             
-                            // 显示图片文件名
+                            // 显示图片文件名和删除按钮
                             let mut should_clear_image = false;
                             if let Some(path) = &self.selected_image {
                                 if let Some(file_name) = path.file_name() {
@@ -920,6 +962,16 @@ impl eframe::App for ChatApp {
                             if should_clear_image {
                                 self.selected_image = None;
                             }
+
+                            // 添加模型选择下拉列表
+                            ui.add_space(10.0);
+                            egui::ComboBox::from_label("模型")
+                                .selected_text(&self.model_name)
+                                .show_ui(ui, |ui| {
+                                    for model in &self.available_models {
+                                        ui.selectable_value(&mut self.model_name, model.clone(), model);
+                                    }
+                                });
                         });
 
                         // 输入框和发送按钮在下方
@@ -945,64 +997,56 @@ impl eframe::App for ChatApp {
                 });
             });
 
-            // 处理消息接收器
-            let mut responses = Vec::new();
+            // 处理消息接收器 - 每帧最多处理一条消息
             if let Some(receiver) = &mut self.receiver {
-                while let Ok(response) = receiver.try_recv() {
-                    responses.push(response);
-                }
-            }
-
-            for response in responses {
-                match response.as_str() {
-                    s if s.starts_with("__UPDATE_MESSAGE_IMAGE__:") => {
-                        if let Some(path) = s.strip_prefix("__UPDATE_MESSAGE_IMAGE__:") {
-                            if let Some(last_msg) = self.chat_history.0.last_mut() {
-                                last_msg.image_path = Some(path.to_string());
-                            }
-                        }
-                    }
-                    s if s.starts_with("__TITLE_UPDATE__") => {
-                        debug!("收到标题更新消息: {}", s);
-                        if let Some(remaining) = s.strip_prefix("__TITLE_UPDATE__") {
-                            let parts: Vec<&str> = remaining.splitn(2, ':').collect();
-                            if parts.len() == 2 {
-                                let chat_id = parts[0];
-                                let title = parts[1];
-                                debug!("正在更新标题 - chat_id: {}, title: {}", chat_id, title);
-                                if let Some(chat) = self.chat_list.chats
-                                    .iter_mut()
-                                    .find(|c| c.id == chat_id)
-                                {
-                                    debug!("找到对应的聊天，更新标题");
-                                    chat.name = title.to_string();
-                                    chat.has_been_renamed = true;
-                                    if let Err(e) = self.save_chat_list() {
-                                        error!("保存聊天列表失败: {}", e);
-                                    } else {
-                                        debug!("标题更新成功并保存");
-                                    }
-                                } else {
-                                    debug!("未找到对应的聊天: {}", chat_id);
+                if let Ok(response) = receiver.try_recv() {  // 只获取一条消息
+                    match response.as_str() {
+                        s if s.starts_with("__UPDATE_MESSAGE_IMAGE__:") => {
+                            if let Some(path) = s.strip_prefix("__UPDATE_MESSAGE_IMAGE__:") {
+                                if let Some(last_msg) = self.chat_history.0.last_mut() {
+                                    last_msg.image_path = Some(path.to_string());
                                 }
                             }
                         }
-                    }
-                    "__STREAM_DONE__" => {
-                        debug!("流式响应完成");
-                        if let Some(current_id) = &self.chat_list.current_chat_id {
-                            if let Some(chat) = self.chat_list.chats
-                                .iter_mut()
-                                .find(|c| &c.id == current_id)
-                            {
-                                chat.messages = self.chat_history.0.clone();
-                                let _ = self.save_chat_list();
+                        s if s.starts_with("__TITLE_UPDATE__") => {
+                            debug!("收到标题更新消息: {}", s);
+                            if let Some(remaining) = s.strip_prefix("__TITLE_UPDATE__") {
+                                let parts: Vec<&str> = remaining.splitn(2, ':').collect();
+                                if parts.len() == 2 {
+                                    let chat_id = parts[0];
+                                    let title = parts[1];
+                                    debug!("正在更新标题 - chat_id: {}, title: {}", chat_id, title);
+                                    if let Some(chat) = self.chat_list.chats
+                                        .iter_mut()
+                                        .find(|c| c.id == chat_id)
+                                    {
+                                        debug!("找到对应的聊天，更新标题");
+                                        chat.name = title.to_string();
+                                        chat.has_been_renamed = true;
+                                    }
+                                }
                             }
                         }
+                        "__STREAM_DONE__" => {
+                            debug!("流式响应完成");
+                            if let Some(current_id) = &self.chat_list.current_chat_id {
+                                if let Some(chat) = self.chat_list.chats
+                                    .iter_mut()
+                                    .find(|c| &c.id == current_id)
+                                {
+                                    chat.messages = self.chat_history.0.clone();
+                                    if let Err(e) = self.save_chat_list() {
+                                        error!("保存聊天列表失败: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        response => {
+                            self.handle_response(response.to_string());
+                        }
                     }
-                    _ => {
-                        self.handle_response(response);
-                    }
+                    // 每处理一条消息就请求重绘
+                    ctx.request_repaint();
                 }
             }
         });

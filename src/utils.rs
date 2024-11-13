@@ -141,7 +141,7 @@ pub fn setup_logger() {
             writeln!(
                 buf,
                 "{} [{}] - {}",
-                Local::now().format("%Y-%m-%d %H:%M:%S"),
+                Local::now().format("%Y-%m-%d %H:%M:%S%.3f"),
                 record.level(),
                 record.args()
             )

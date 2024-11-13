@@ -46,7 +46,6 @@ pub async fn send_request(
     loop {
         debug!("发送API请求 (重试次数: {})", retry_count);
         
-        // 使用 reqwest 发送异步请求
         let response = client
             .post(api_endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -79,7 +78,6 @@ pub async fn send_request(
                     if let Ok(text) = String::from_utf8(chunk.to_vec()) {
                         for line in text.lines() {
                             incomplete_data.push_str(line);
-                            debug!("收到数据: {}", incomplete_data);
                             if incomplete_data.contains("data: ") {
                                 let index = incomplete_data.find("data: ").unwrap();
                                 let data = &incomplete_data[index + 6..];
@@ -130,6 +128,7 @@ pub async fn send_request(
                                         if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                                             if !content.is_empty() {
                                                 let _ = tx.send(content.to_string());
+                                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                                             }
                                         }
                                     }

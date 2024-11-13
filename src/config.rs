@@ -13,6 +13,7 @@ pub struct Config {
 pub struct ApiConfig {
     pub endpoint: String,
     pub model: String,
+    pub available_models: Vec<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -30,7 +31,12 @@ impl Default for Config {
             api_key: String::new(),
             api: ApiConfig {
                 endpoint: "https://api.openai.com/v1/chat/completions".to_string(),
-                model: "gpt-3.5-turbo".to_string(),
+                model: "gpt-4-vision-preview".to_string(),
+                available_models: vec![
+                    "gpt-4-vision-preview".to_string(),
+                    "gpt-4".to_string(),
+                    "gpt-3.5-turbo".to_string(),
+                ],
             },
             chat: ChatConfig {
                 system_prompt: "你是一个有帮助的助手。".to_string(),
