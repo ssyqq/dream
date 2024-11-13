@@ -2,7 +2,7 @@ use eframe::egui::{self, RichText, ScrollArea, TextEdit, load::SizedTexture};
 use crate::models::{ChatList, Message, Chat, ChatHistory};
 use crate::config;
 use crate::api;
-use crate::utils;
+use crate::utils::{self, ImageError};
 use tokio::runtime::Runtime;
 use reqwest::Client;
 use std::collections::HashMap;
@@ -34,6 +34,7 @@ pub struct ChatApp {
     pub max_retries: i32,
     pub selected_image: Option<PathBuf>,
     pub texture_cache: HashMap<String, TextureHandle>,
+    pub processing_image: Option<tokio::task::JoinHandle<Result<PathBuf, ImageError>>>,
 }
 
 impl Default for ChatApp {
@@ -74,6 +75,7 @@ impl Default for ChatApp {
             max_retries: config.chat.max_retries as i32,
             selected_image: None,
             texture_cache: HashMap::new(),
+            processing_image: None,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -141,6 +143,7 @@ impl ChatApp {
             max_retries: config.chat.max_retries as i32,
             selected_image: None,
             texture_cache: HashMap::new(),
+            processing_image: None,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -242,6 +245,44 @@ impl ChatApp {
         let user_input = std::mem::take(&mut self.input_text);
         let image_path = self.selected_image.take();
         
+        // 如果有正在处理的图片，等待其完成
+        let processed_image = if let Some(processing) = self.processing_image.take() {
+            match self.runtime_handle.block_on(async {
+                match processing.await {
+                    Ok(result) => result,
+                    Err(_) => Err(ImageError::IoError(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        "图片处理任务被取消"
+                    )))
+                }
+            }) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    error!("图片处理失败: {}", e);
+                    None
+                }
+            }
+        } else if let Some(ref path) = image_path {
+            // 如果图片还没开始处理，立即处理
+            match self.runtime_handle.block_on(async {
+                utils::copy_to_cache(path).await
+            }) {
+                Ok(path) => Some(path),
+                Err(e) => {
+                    error!("图片处理失败: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        // 创建用户消息时使用处理后的图片路径
+        let mut new_message = Message::new_user(
+            user_input.clone(),
+            processed_image.map(|p| p.to_string_lossy().to_string()),
+        );
+        
         debug!("检查是否需要生成标题");
         let should_generate_title = if let Some(current_id) = &self.chat_list.current_chat_id {
             self.chat_list.chats
@@ -266,10 +307,6 @@ impl ChatApp {
         self.receiver = Some(rx);
 
         // 立即创建并添加用户消息（只包含文字）
-        let mut new_message = Message::new_user(
-            user_input.clone(),
-            None,  // 暂时不包含图片
-        );
         self.chat_history.add_message(new_message.clone());
 
         // 启动异步任务
@@ -573,6 +610,7 @@ impl Clone for ChatApp {
             max_retries: self.max_retries,
             selected_image: self.selected_image.clone(),
             texture_cache: self.texture_cache.clone(),
+            processing_image: None,
         }
     }
 }
@@ -606,7 +644,7 @@ impl eframe::App for ChatApp {
                                     let mut selected_messages = None;
                                     let mut selected_id = None;
                                     
-                                    // 创建一个反���迭代器来倒序显示聊天列表
+                                    // 创建一个反迭代器来倒序显示聊天列表
                                     for chat in self.chat_list.chats.iter().rev() {
                                         let is_selected = self.chat_list.current_chat_id
                                             .as_ref()
@@ -798,7 +836,12 @@ impl eframe::App for ChatApp {
                                     .add_filter("图片", &["png", "jpg", "jpeg"])
                                     .pick_file() 
                                 {
-                                    self.selected_image = Some(path);
+                                    self.selected_image = Some(path.clone());
+                                    // 立即开始处理图片
+                                    let runtime_handle = self.runtime_handle.clone();
+                                    self.processing_image = Some(runtime_handle.spawn(async move {
+                                        utils::copy_to_cache(&path).await
+                                    }));
                                 }
                             }
                             
