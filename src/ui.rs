@@ -294,7 +294,7 @@ impl ChatApp {
             false
         };
 
-        debug!("准备发���消息，是否包含图片: {}", image_path.is_some());
+        debug!("准备发消息，是否包含图片: {}", image_path.is_some());
 
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
@@ -326,25 +326,34 @@ impl ChatApp {
         self.runtime.spawn(async move {
             // 先处理图片（如果有）
             let cached_image_path = if let Some(path) = image_path {
-                match utils::copy_to_cache(&path).await {
-                    Ok(cache_path) => {
-                        debug!("图片已复制到缓存: {:?}", cache_path);
-                        Some(cache_path)
-                    }
-                    Err(e) => {
-                        error!("处理图片失败: {}", e);
-                        None
+                // 如果已经有处理过的图片路径，直接使用它
+                if let Some(ref processed_path) = new_message.image_path {
+                    debug!("使用已处理的缓存图片: {:?}", processed_path);
+                    Some(PathBuf::from(processed_path))
+                } else {
+                    // 否则才进行处理
+                    match utils::copy_to_cache(&path).await {
+                        Ok(cache_path) => {
+                            debug!("图片已复制到缓存: {:?}", cache_path);
+                            Some(cache_path)
+                        }
+                        Err(e) => {
+                            error!("处理图片失败: {}", e);
+                            None
+                        }
                     }
                 }
             } else {
                 None
             };
 
-            // 更新消息中的图片路径
-            if let Some(path) = cached_image_path.clone() {
-                new_message.image_path = Some(path.to_string_lossy().to_string());
-                // 发送消息更新通知
-                let _ = tx_clone.send(format!("__UPDATE_MESSAGE_IMAGE__:{}", path.to_string_lossy()));
+            // 更新消息中的图片路径（如果还没有设置的话）
+            if new_message.image_path.is_none() {
+                if let Some(path) = cached_image_path.clone() {
+                    new_message.image_path = Some(path.to_string_lossy().to_string());
+                    // 发送消息更新通知
+                    let _ = tx_clone.send(format!("__UPDATE_MESSAGE_IMAGE__:{}", path.to_string_lossy()));
+                }
             }
 
             // 构建消息数组
@@ -450,7 +459,7 @@ impl ChatApp {
                                 }
                             }
                             Err(e) => {
-                                error!("解析标题生成响应失败: {}", e);
+                                error!("析标题生成响应失败: {}", e);
                             }
                         }
                     }
@@ -713,7 +722,7 @@ impl eframe::App for ChatApp {
                             debug!("未找到要删除的对话: {}", current_id);
                         }
                         
-                        // 如果删除是当前选中的对话，清空聊天历史
+                        // 如果删除的是当前选中的对话，清空聊天历史
                         self.chat_history.0.clear();
                         self.chat_list.current_chat_id = None;
                         

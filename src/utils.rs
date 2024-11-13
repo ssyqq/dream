@@ -152,28 +152,40 @@ pub fn setup_logger() {
 
 pub async fn remove_cached_image(path: &str) -> std::io::Result<()> {
     debug!("尝试删除缓存图片: {}", path);
-    if let Ok(path) = std::path::PathBuf::from(path).canonicalize() {
-        let cache_dir = ensure_cache_dir().await?;
-        debug!("缓存目录: {:?}", cache_dir);
-        
-        if path.starts_with(&cache_dir) {
-            debug!("确认图片在缓存目录中，开始删除: {:?}", path);
-            match tokio::fs::remove_file(&path).await {
-                Ok(_) => {
-                    debug!("成功删除缓存图片: {:?}", path);
-                    Ok(())
-                }
-                Err(e) => {
-                    error!("删除缓存图片失败: {:?} - {}", path, e);
-                    Err(e)
-                }
+    
+    // 获取缓存目录的绝对路径
+    let cache_dir = ensure_cache_dir().await?;
+    let cache_dir = cache_dir.canonicalize()?;
+    debug!("缓存目录: {:?}", cache_dir);
+    
+    // 获取图片的绝对路径
+    let path = std::path::PathBuf::from(path);
+    let path = if path.is_absolute() {
+        path
+    } else {
+        std::env::current_dir()?.join(path)
+    };
+    let path = path.canonicalize()?;
+    debug!("图片路径: {:?}", path);
+    
+    // 将两个路径转换为字符串进行比较
+    let cache_str = cache_dir.to_string_lossy().to_lowercase();
+    let path_str = path.to_string_lossy().to_lowercase();
+    
+    if path_str.contains(&cache_str) {
+        debug!("确认图片在缓存目录中，开始删除: {:?}", path);
+        match tokio::fs::remove_file(&path).await {
+            Ok(_) => {
+                debug!("成功删除缓存图片: {:?}", path);
+                Ok(())
             }
-        } else {
-            debug!("图片不在缓存目录中，跳过删除: {:?}", path);
-            Ok(())
+            Err(e) => {
+                error!("删除缓存图片失败: {:?} - {}", path, e);
+                Err(e)
+            }
         }
     } else {
-        debug!("无法解析图片路径: {}", path);
+        debug!("图片不在缓存目录中，跳过删除。\n缓存目录: {}\n图片路径: {}", cache_str, path_str);
         Ok(())
     }
 } 
