@@ -21,6 +21,7 @@ pub struct ChatConfig {
     pub temperature: f64,
     pub retry_enabled: bool,
     pub max_retries: i64,
+    pub dark_mode: bool,
 }
 
 impl Default for Config {
@@ -36,6 +37,7 @@ impl Default for Config {
                 temperature: 0.7,
                 retry_enabled: true,
                 max_retries: 10,
+                dark_mode: true,
             },
         }
     }

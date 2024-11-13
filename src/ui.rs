@@ -35,6 +35,7 @@ pub struct ChatApp {
     pub selected_image: Option<PathBuf>,
     pub texture_cache: HashMap<String, TextureHandle>,
     pub processing_image: Option<tokio::task::JoinHandle<Result<PathBuf, ImageError>>>,
+    pub dark_mode: bool,
 }
 
 impl Default for ChatApp {
@@ -76,6 +77,7 @@ impl Default for ChatApp {
             selected_image: None,
             texture_cache: HashMap::new(),
             processing_image: None,
+            dark_mode: config.chat.dark_mode,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -144,6 +146,7 @@ impl ChatApp {
             selected_image: None,
             texture_cache: HashMap::new(),
             processing_image: None,
+            dark_mode: config.chat.dark_mode,
         };
         
         // 如果没有任何对话，创建一个默认对话，但不选中它
@@ -184,6 +187,7 @@ impl ChatApp {
                 temperature: self.temperature as f64,
                 retry_enabled: self.retry_enabled,
                 max_retries: self.max_retries as i64,
+                dark_mode: self.dark_mode,
             },
         };
         
@@ -351,7 +355,7 @@ impl ChatApp {
             if new_message.image_path.is_none() {
                 if let Some(path) = cached_image_path.clone() {
                     new_message.image_path = Some(path.to_string_lossy().to_string());
-                    // 发送消息更新通知
+                    // 发送消息更通知
                     let _ = tx_clone.send(format!("__UPDATE_MESSAGE_IMAGE__:{}", path.to_string_lossy()));
                 }
             }
@@ -577,7 +581,7 @@ impl ChatApp {
 
     fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {
         debug!("加载图片: {}", path);
-        // 使用 block_on 执行异步加载
+        // 使用 block_on 执行��步加载
         if let Some((width, height, pixels)) = self.runtime_handle.block_on(async {
             self.load_image_async(path).await
         }) {
@@ -620,12 +624,20 @@ impl Clone for ChatApp {
             selected_image: self.selected_image.clone(),
             texture_cache: self.texture_cache.clone(),
             processing_image: None,
+            dark_mode: self.dark_mode,
         }
     }
 }
 
 impl eframe::App for ChatApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // 在每次更新时设置主题
+        if self.dark_mode {
+            ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            ctx.set_visuals(egui::Visuals::light());
+        }
+
         egui::SidePanel::left("chat_list_panel")
             .default_width(200.0)
             .show(ctx, |ui| {
@@ -685,9 +697,20 @@ impl eframe::App for ChatApp {
                             // 底部齿轮按钮
                             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                                 ui.add_space(4.0);
-                                if ui.button("⚙").clicked() {
-                                    self.show_settings = !self.show_settings;
-                                }
+                                ui.horizontal(|ui| {
+                                    if ui.button("⚙").clicked() {
+                                        self.show_settings = !self.show_settings;
+                                    }
+                                    
+                                    // 添加主题切换按钮
+                                    if ui.button(if self.dark_mode { "☀" } else { "🌙" }).clicked() {
+                                        self.dark_mode = !self.dark_mode;
+                                        // 保存主题设置
+                                        if let Err(e) = self.save_config(frame) {
+                                            error!("保存配置失败: {}", e);
+                                        }
+                                    }
+                                });
                             });
                         });
                     });
