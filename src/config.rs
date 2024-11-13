@@ -1,6 +1,6 @@
 use serde::{Serialize, Deserialize};
-use std::fs;
 use std::error::Error as StdError;
+use tokio::fs;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct Config {
@@ -86,15 +86,15 @@ impl StdError for ConfigError {
     }
 }
 
-pub fn load_config() -> Config {
-    match fs::read_to_string("dream.toml") {
+pub async fn load_config() -> Config {
+    match fs::read_to_string("dream.toml").await {
         Ok(content) => toml::from_str(&content).unwrap_or_default(),
         Err(_) => Config::default(),
     }
 }
 
-pub fn save_config(config: &Config) -> Result<(), ConfigError> {
+pub async fn save_config(config: &Config) -> Result<(), ConfigError> {
     let toml_string = toml::to_string_pretty(config)?;
-    fs::write("dream.toml", toml_string)?;
+    fs::write("dream.toml", toml_string).await?;
     Ok(())
 } 

@@ -13,10 +13,10 @@ pub struct Message {
 }
 
 impl Message {
-    pub fn to_api_content(&self) -> std::io::Result<JsonValue> {
+    pub async fn to_api_content(&self) -> std::io::Result<JsonValue> {
         match &self.image_path {
             Some(path) => {
-                let base64_image = utils::get_image_base64(Path::new(path))?;
+                let base64_image = utils::get_image_base64(Path::new(path)).await?;
                 Ok(json!([
                     {
                         "type": "image_url",

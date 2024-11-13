@@ -11,7 +11,7 @@ use tokio::sync::mpsc;
 use eframe::egui::TextureHandle;
 use log::{debug, error};
 use uuid::Uuid;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use rfd::FileDialog;
 use image::GenericImageView;
 
@@ -20,6 +20,7 @@ pub struct ChatApp {
     pub chat_history: ChatHistory,
     pub api_key: String,
     pub runtime: Runtime,
+    pub runtime_handle: tokio::runtime::Handle,
     pub receiver: Option<mpsc::UnboundedReceiver<String>>,
     pub show_settings: bool,
     pub api_endpoint: String,
@@ -37,6 +38,10 @@ pub struct ChatApp {
 
 impl Default for ChatApp {
     fn default() -> Self {
+        // 创建运行时
+        let runtime = Runtime::new().unwrap();
+        let runtime_handle = runtime.handle().clone();
+        
         // 修复 timeout 的类型问题
         let client = Client::builder()
             .pool_idle_timeout(std::time::Duration::from_secs(30))
@@ -45,14 +50,17 @@ impl Default for ChatApp {
             .build()
             .unwrap();
 
-        // 读取配置文件
-        let config = config::load_config();
+        // 读取配置文件并等待结果
+        let config = runtime_handle.block_on(async {
+            config::load_config().await
+        });
 
         let mut app = Self {
             input_text: String::new(),
             chat_history: ChatHistory(Vec::new()),
             api_key: config.api_key,
-            runtime: Runtime::new().unwrap(),
+            runtime,
+            runtime_handle,
             receiver: None,
             show_settings: false,
             api_endpoint: config.api.endpoint,
@@ -94,6 +102,72 @@ impl Default for ChatApp {
 }
 
 impl ChatApp {
+    pub fn new(runtime: Runtime) -> Self {
+        debug!("创建新的 ChatApp 实例");
+        let handle = runtime.handle().clone();
+        
+        // 修复 timeout 的类型问题
+        debug!("初始化 HTTP 客户端");
+        let client = Client::builder()
+            .pool_idle_timeout(std::time::Duration::from_secs(30))
+            .tcp_keepalive(std::time::Duration::from_secs(60))
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
+
+        // 读取配置文件并等待结果
+        debug!("加载配置文件");
+        let config = handle.block_on(async {
+            config::load_config().await
+        });
+        debug!("配置加载完成");
+
+        let mut app = Self {
+            input_text: String::new(),
+            chat_history: ChatHistory(Vec::new()),
+            api_key: config.api_key,
+            runtime,
+            runtime_handle: handle,
+            receiver: None,
+            show_settings: false,
+            api_endpoint: config.api.endpoint,
+            model_name: config.api.model,
+            system_prompt: config.chat.system_prompt,
+            temperature: config.chat.temperature as f32,
+            client,
+            chat_list: ChatList::default(),
+            previous_show_settings: false,
+            retry_enabled: config.chat.retry_enabled,
+            max_retries: config.chat.max_retries as i32,
+            selected_image: None,
+            texture_cache: HashMap::new(),
+        };
+        
+        // 如果没有任何对话，创建一个默认对话，但不选中它
+        if app.chat_list.chats.is_empty() {
+            let id = Uuid::new_v4().to_string();
+            let new_chat = Chat {
+                id: id.clone(),
+                name: "新对话".to_string(),
+                messages: Vec::new(),
+                has_been_renamed: false,
+            };
+            app.chat_list.chats.insert(0, new_chat);
+        }
+        
+        // 尝试加载聊天列表
+        if let Err(e) = app.load_chat_list() {
+            eprintln!("加载聊天列表失败: {}", e);
+        }
+        
+        // 确保没有选中任何对话
+        app.chat_list.current_chat_id = None;
+        app.chat_history.0.clear();
+        
+        debug!("ChatApp 实例创建完成");
+        app
+    }
+
     fn save_config(&self, _frame: &mut eframe::Frame) -> Result<(), Box<dyn std::error::Error>> {
         debug!("正在保存配置...");
         let config = config::Config {
@@ -110,23 +184,41 @@ impl ChatApp {
             },
         };
         
-        config::save_config(&config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
+        // 使用 block_on 等待异步保存完成
+        self.runtime_handle.block_on(async {
+            config::save_config(&config).await
+        }).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
     }
 
-    fn save_chat_list(&self) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("��在保存聊天列表...");
+    async fn save_chat_list_async(&self) -> Result<(), Box<dyn std::error::Error>> {
+        debug!("正在保存天列表...");
         let json = serde_json::to_string_pretty(&self.chat_list)?;
-        std::fs::write("chat_list.json", json)?;
+        tokio::fs::write("chat_list.json", json).await?;
         debug!("聊天列表保存成功");
         Ok(())
     }
 
-    fn load_chat_list(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        if let Ok(content) = std::fs::read_to_string("chat_list.json") {
-            self.chat_list = serde_json::from_str(&content)?;
+    fn save_chat_list(&self) -> Result<(), Box<dyn std::error::Error>> {
+        self.runtime_handle.block_on(async {
+            self.save_chat_list_async().await
+        })
+    }
+
+    async fn load_chat_list_async(chat_list: &mut ChatList) -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(content) = tokio::fs::read_to_string("chat_list.json").await {
+            *chat_list = serde_json::from_str(&content)?;
             // 加载后反转列表顺序
-            self.chat_list.chats.reverse();
+            chat_list.chats.reverse();
         }
+        Ok(())
+    }
+
+    fn load_chat_list(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut chat_list = self.chat_list.clone();
+        self.runtime_handle.block_on(async {
+            Self::load_chat_list_async(&mut chat_list).await
+        })?;
+        self.chat_list = chat_list;
         Ok(())
     }
 
@@ -146,10 +238,11 @@ impl ChatApp {
     }
 
     fn send_message(&mut self) {
+        debug!("开始发送消息");
         let user_input = std::mem::take(&mut self.input_text);
         let image_path = self.selected_image.take();
         
-        // 检查是否需要生成标题（在添加新消息之前）
+        debug!("检查是否需要生成标题");
         let should_generate_title = if let Some(current_id) = &self.chat_list.current_chat_id {
             self.chat_list.chats
                 .iter()
@@ -164,107 +257,94 @@ impl ChatApp {
 
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
+            debug!("没有选中的聊天，创建新对话");
             self.new_chat();
         }
 
-        // 处理图片
-        let cached_image_path = if let Some(path) = image_path {
-            debug!("开始处理图片: {:?}", path);
-            match utils::copy_to_cache(&path) {
-                Ok(cache_path) => {
-                    debug!("图片已复制到缓存: {:?}", cache_path);
-                    Some(cache_path)
-                }
-                Err(e) => {
-                    error!("处理图片失败: {}", e);
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        // 创建通道
+        let (tx, rx) = mpsc::unbounded_channel();
+        self.receiver = Some(rx);
 
-        // 使用新的构造方法
-        let new_message = Message::new_user(
-            user_input,
-            cached_image_path.map(|p| p.to_string_lossy().to_string()),
+        // 立即创建并添加用户消息（只包含文字）
+        let mut new_message = Message::new_user(
+            user_input.clone(),
+            None,  // 暂时不包含图片
         );
+        self.chat_history.add_message(new_message.clone());
 
-        // 构建消息数组
-        let mut messages = vec![
-            json!({
-                "role": "system",
-                "content": self.system_prompt.clone()
-            })
-        ];
+        // 启动异步任务
+        let client = self.client.clone();
+        let api_key = self.api_key.clone();
+        let api_endpoint = self.api_endpoint.clone();
+        let model_name = self.model_name.clone();
+        let temperature = self.temperature;
+        let system_prompt = self.system_prompt.clone();
+        let retry_enabled = self.retry_enabled;
+        let max_retries = self.max_retries;
+        let history_messages = self.chat_history.0.clone();
+        let chat_id = self.chat_list.current_chat_id.clone();
+        let should_generate_title = should_generate_title;
+        let tx_clone = tx.clone();  // 克隆通道发送端
 
-        // 添加历史消息
-        for msg in &self.chat_history.0 {
-            match msg.to_api_content() {
-                Ok(content) => {
+        self.runtime.spawn(async move {
+            // 先处理图片（如果有）
+            let cached_image_path = if let Some(path) = image_path {
+                match utils::copy_to_cache(&path).await {
+                    Ok(cache_path) => {
+                        debug!("图片已复制到缓存: {:?}", cache_path);
+                        Some(cache_path)
+                    }
+                    Err(e) => {
+                        error!("处理图片失败: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // 更新消息中的图片路径
+            if let Some(path) = cached_image_path.clone() {
+                new_message.image_path = Some(path.to_string_lossy().to_string());
+                // 发送消息更新通知
+                let _ = tx_clone.send(format!("__UPDATE_MESSAGE_IMAGE__:{}", path.to_string_lossy()));
+            }
+
+            // 构建消息数组
+            let mut messages = vec![
+                json!({
+                    "role": "system",
+                    "content": system_prompt
+                })
+            ];
+
+            // 添加历史消息
+            for msg in history_messages {
+                if let Ok(content) = msg.to_api_content().await {
                     messages.push(json!({
                         "role": msg.role,
                         "content": content
                     }));
                 }
-                Err(e) => {
-                    error!("处理历史消息失败: {}", e);
-                }
             }
-        }
 
-        // 添加新消息
-        match new_message.to_api_content() {
-            Ok(content) => {
+            // 添加新消息（包含处理后的图片）
+            if let Ok(content) = new_message.to_api_content().await {
                 messages.push(json!({
                     "role": "user",
                     "content": content
                 }));
-                self.chat_history.0.push(new_message);
             }
-            Err(e) => {
-                error!("处理新消息失败: {}", e);
-                return;
-            }
-        }
 
-        // 构建请求payload
-        let payload = json!({
-            "model": self.model_name.clone(),
-            "messages": messages,
-            "temperature": self.temperature,
-            "stream": true
-        });
+            // 发送请求
+            let payload = json!({
+                "model": model_name,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": true
+            });
 
-        debug!("发送请求payload: {}", serde_json::to_string_pretty(&payload).unwrap_or_default());
-
-        // 建立发送通道
-        let (tx, rx) = mpsc::unbounded_channel();
-        self.receiver = Some(rx);
-        
-        // 克隆需要的值
-        let api_key = self.api_key.clone();
-        let api_endpoint = self.api_endpoint.clone();
-        let model_name = self.model_name.clone();
-        let client = self.client.clone();
-        let retry_enabled = self.retry_enabled;
-        let max_retries = self.max_retries;
-
-        // 在这里克隆两次 tx
-        let msg_tx = tx.clone();
-        let title_tx = tx;  // 原始的 tx 用于标题生成
-
-        // 构建请求payload
-        let payload = json!({
-            "model": model_name.clone(),
-            "messages": messages,
-            "temperature": self.temperature,
-            "stream": true
-        });
-
-        debug!("启动异步发送任务");
-        // 在运行时中启动异步任务，使用 msg_tx
-        self.runtime.spawn(async move {
+            // 发送请求
             if let Err(e) = api::send_request(
                 &client,
                 &api_endpoint,
@@ -272,92 +352,95 @@ impl ChatApp {
                 &payload,
                 retry_enabled,
                 max_retries,
-                &msg_tx
+                &tx_clone
             ).await {
                 error!("发送请求失败: {:?}", e);
-                let error_message = match e {
-                    api::ApiError::TooManyRequests(_) => "请求频率限制，请稍后重试".to_string(),
-                    api::ApiError::HttpError(res) => format!("API错误: {}", res.status()),
-                    api::ApiError::Other(e) => format!("请求失败: {}", e),
-                };
-                let _ = msg_tx.send(error_message);
-                let _ = msg_tx.send("__STREAM_DONE__".to_string());
+                let _ = tx_clone.send(format!("错误: {}", e));
+                let _ = tx_clone.send("__STREAM_DONE__".to_string());
             }
-        });
 
-        // 如果需要生成标题，使用 title_tx
-        if should_generate_title {
-            debug!("开始生成标题任务");
-            let messages = self.chat_history.0.clone();
-            let chat_id = self.chat_list.current_chat_id.clone().unwrap();
-            let client = self.client.clone();
-            let api_endpoint = self.api_endpoint.clone();
-            let api_key = self.api_key.clone();
-            let model_name = model_name.clone();
-            let title_tx = title_tx.clone();
-            
-            self.runtime.spawn(async move {
-                debug!("发送标题生成请求");
-                let response = client
+            // 如果需要生成标题
+            if should_generate_title {
+                debug!("需要生成标题，当前对话ID: {:?}", chat_id);
+                debug!("开始生成标题，用户输入: {}", user_input);
+                let title_payload = json!({
+                    "model": model_name.clone(),
+                    "messages": vec![
+                        json!({
+                            "role": "system",
+                            "content": "请根据用户的输入生成一个简短的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
+                        }),
+                        json!({
+                            "role": "user",
+                            "content": user_input.clone()
+                        }),
+                    ],
+                    "temperature": 0.7,
+                    "max_tokens": 60
+                });
+
+                debug!("发送标题生成请求: {}", title_payload);
+                // 发送标题生成请求
+                match client
                     .post(&api_endpoint)
                     .header("Authorization", format!("Bearer {}", api_key))
                     .header("Content-Type", "application/json")
-                    .json(&json!({
-                        "model": model_name,
-                        "messages": vec![
-                            json!({
-                                "role": "system",
-                                "content": "请根据用户的输入生成一个简短的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
-                            }),
-                            json!({
-                                "role": "user",
-                                "content": messages.first().map(|msg| msg.content.clone()).unwrap_or_default()
-                            }),
-                        ],
-                        "temperature": 0.7,
-                        "max_tokens": 60
-                    }))
+                    .json(&title_payload)
                     .send()
-                    .await;
-
-                let title = match response {
-                    Ok(resp) => {
-                        match resp.json::<serde_json::Value>().await {
+                    .await
+                {
+                    Ok(response) => {
+                        debug!("收到标题生成响应: {:?}", response.status());
+                        match response.json::<JsonValue>().await {
                             Ok(json) => {
-                                let title = json["choices"][0]["message"]["content"]
+                                debug!("标题生成响应JSON: {:?}", json);
+                                if let Some(title) = json["choices"][0]["message"]["content"]
                                     .as_str()
-                                    .map(|s| s.trim().to_string());
-                                debug!("生成标题成功: {:?}", title);
-                                title
+                                    .map(|s| s.trim().to_string())
+                                {
+                                    debug!("成功生成标题: {}", title);
+                                    if let Some(chat_id) = chat_id {
+                                        let title_message = format!("__TITLE_UPDATE__{}:{}", chat_id, title);
+                                        debug!("发送标题更新消息: {}", title_message);
+                                        if let Err(e) = tx_clone.send(title_message) {
+                                            error!("发送标题更新消息失败: {}", e);
+                                        }
+                                    } else {
+                                        debug!("没有找到对话ID，无法更新标题");
+                                    }
+                                } else {
+                                    error!("无法从响应中提取标题");
+                                }
                             }
                             Err(e) => {
-                                error!("解析标题响应失败: {}", e);
-                                None
+                                error!("解析标题生成响应失败: {}", e);
                             }
                         }
                     }
                     Err(e) => {
                         error!("标题生成请求失败: {}", e);
-                        None
                     }
-                };
-
-                if let Some(title) = title {
-                    debug!("发送标题更新消息: {}", title);
-                    let _ = title_tx.send(format!("__TITLE_UPDATE__{}:{}", chat_id, title));
                 }
-            });
-        }
+            } else {
+                debug!("不需要生成标题");
+            }
+        });
     }
 
     fn handle_message_selection(&mut self, messages: Vec<Message>) {
+        debug!("选择消息: {} 条", messages.len());
         self.chat_history.0 = messages;
     }
 
     fn handle_response(&mut self, response: String) {
+        debug!("处理响应: {}", response);
         if self.chat_history.last_message_is_assistant() {
-            self.chat_history.update_last_message(response);
+            debug!("更新助手的最后一条消息");
+            if let Some(last_msg) = self.chat_history.0.last_mut() {
+                last_msg.content.push_str(&response);
+            }
         } else {
+            debug!("添加新的助手消息");
             self.chat_history.add_message(Message::new_assistant(response));
         }
     }
@@ -398,40 +481,73 @@ impl ChatApp {
         }
     }
 
-    fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {
-        if let Ok(image_bytes) = std::fs::read(path) {
-            if let Ok(image) = image::load_from_memory(&image_bytes) {
-                let dimensions = image.dimensions();
-                let max_size = 800;
-                let (width, height) = if dimensions.0 > max_size || dimensions.1 > max_size {
-                    let scale = max_size as f32 / dimensions.0.max(dimensions.1) as f32;
-                    ((dimensions.0 as f32 * scale) as u32, 
-                     (dimensions.1 as f32 * scale) as u32)
-                } else {
-                    dimensions
-                };
-                
-                let rgba_image = image.into_rgba8();
-                let resized = image::imageops::resize(
-                    &rgba_image,
-                    width,
-                    height,
-                    image::imageops::FilterType::Triangle
-                );
-                
-                let pixels = resized.as_raw();
-                let texture = ui.ctx().load_texture(
-                    format!("img_{}", path.replace("/", "_")),
-                    egui::ColorImage::from_rgba_unmultiplied(
-                        [width as _, height as _],
-                        pixels,
-                    ),
-                    egui::TextureOptions::default(),
-                );
-                
-                return Some(texture);
+    async fn load_image_async(&self, path: &str) -> Option<(u32, u32, Vec<u8>)> {
+        debug!("异步加载图片: {}", path);
+        // 异步读取图片文件
+        let image_bytes = match tokio::fs::read(path).await {
+            Ok(bytes) => {
+                debug!("读取图片文件成功，大小: {} bytes", bytes.len());
+                bytes
             }
+            Err(e) => {
+                error!("读取图片文件失败: {}", e);
+                return None;
+            }
+        };
+
+        // 在单独的线程中处理片
+        let result = tokio::task::spawn_blocking(move || {
+            let image = match image::load_from_memory(&image_bytes) {
+                Ok(img) => img,
+                Err(e) => {
+                    error!("加载图片失败: {}", e);
+                    return None;
+                }
+            };
+
+            let dimensions = image.dimensions();
+            let max_size = 800;
+            let (width, height) = if dimensions.0 > max_size || dimensions.1 > max_size {
+                let scale = max_size as f32 / dimensions.0.max(dimensions.1) as f32;
+                ((dimensions.0 as f32 * scale) as u32, 
+                 (dimensions.1 as f32 * scale) as u32)
+            } else {
+                dimensions
+            };
+            
+            let rgba_image = image.into_rgba8();
+            let resized = image::imageops::resize(
+                &rgba_image,
+                width,
+                height,
+                image::imageops::FilterType::Triangle
+            );
+            
+            Some((width, height, resized.as_raw().to_vec()))
+        }).await.unwrap_or(None);
+
+        result
+    }
+
+    fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {
+        debug!("加载图片: {}", path);
+        // 使用 block_on 执行异步加载
+        if let Some((width, height, pixels)) = self.runtime_handle.block_on(async {
+            self.load_image_async(path).await
+        }) {
+            debug!("图片加载成功: {}x{}", width, height);
+            let texture = ui.ctx().load_texture(
+                format!("img_{}", path.replace("/", "_")),
+                egui::ColorImage::from_rgba_unmultiplied(
+                    [width as _, height as _],
+                    &pixels
+                ),
+                egui::TextureOptions::default(),
+            );
+            
+            return Some(texture);
         }
+        debug!("图片加载失败");
         None
     }
 }
@@ -442,8 +558,9 @@ impl Clone for ChatApp {
             input_text: self.input_text.clone(),
             chat_history: self.chat_history.clone(),
             api_key: self.api_key.clone(),
-            runtime: Runtime::new().unwrap(), // 创建新的 Runtime
-            receiver: None, // 不克隆 receiver
+            runtime: Runtime::new().unwrap(),
+            runtime_handle: self.runtime.handle().clone(),
+            receiver: None,
             show_settings: self.show_settings,
             api_endpoint: self.api_endpoint.clone(),
             model_name: self.model_name.clone(),
@@ -489,7 +606,7 @@ impl eframe::App for ChatApp {
                                     let mut selected_messages = None;
                                     let mut selected_id = None;
                                     
-                                    // 创建一个反向迭代器来倒序显示聊天列表
+                                    // 创建一个反���迭代器来倒序显示聊天列表
                                     for chat in self.chat_list.chats.iter().rev() {
                                         let is_selected = self.chat_list.current_chat_id
                                             .as_ref()
@@ -532,7 +649,7 @@ impl eframe::App for ChatApp {
                 if ui.ui_contains_pointer() && 
                    ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Backspace)) {
                     if let Some(current_id) = self.chat_list.current_chat_id.clone() {
-                        // 如果删除的是当前选中的对话，清空聊天历史
+                        // 如果删除是当前选中的对话，清空聊天历史
                         self.chat_history.0.clear();
                         self.chat_list.current_chat_id = None;
                         
@@ -597,7 +714,7 @@ impl eframe::App for ChatApp {
                                     ui.end_row();
 
                                     // 模型名称设置
-                                    ui.label("模型名称:");
+                                    ui.label("型名称:");
                                     if ui.add(TextEdit::singleline(&mut self.model_name)
                                         .desired_width(ui.available_width() - 60.0)).changed() {
                                         config_changed = true;
@@ -637,14 +754,14 @@ impl eframe::App for ChatApp {
                                 });
                             
                             if config_changed {
-                                debug!("配置已更改，正在保存");
+                                debug!("配置更改，正在保存");
                                 if let Err(e) = self.save_config(frame) {
                                     error!("保存配置失败: {}", e);
                                 }
                             }
                         });
                 } else if self.previous_show_settings {
-                    // 当设置面板关闭时打印日志
+                    // 当设置面关闭时打印日志
                     debug!("关闭设置面板");
                 }
 
@@ -725,7 +842,7 @@ impl eframe::App for ChatApp {
                 });
             });
 
-            // 处理主消息接收器
+            // 处理消息接收器
             let mut responses = Vec::new();
             if let Some(receiver) = &mut self.receiver {
                 while let Ok(response) = receiver.try_recv() {
@@ -735,6 +852,13 @@ impl eframe::App for ChatApp {
 
             for response in responses {
                 match response.as_str() {
+                    s if s.starts_with("__UPDATE_MESSAGE_IMAGE__:") => {
+                        if let Some(path) = s.strip_prefix("__UPDATE_MESSAGE_IMAGE__:") {
+                            if let Some(last_msg) = self.chat_history.0.last_mut() {
+                                last_msg.image_path = Some(path.to_string());
+                            }
+                        }
+                    }
                     s if s.starts_with("__TITLE_UPDATE__") => {
                         debug!("收到标题更新消息: {}", s);
                         if let Some(remaining) = s.strip_prefix("__TITLE_UPDATE__") {

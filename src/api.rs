@@ -45,6 +45,8 @@ pub async fn send_request(
     
     loop {
         debug!("发送API请求 (重试次数: {})", retry_count);
+        
+        // 使用 reqwest 发送异步请求
         let response = client
             .post(api_endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -60,6 +62,8 @@ pub async fn send_request(
                     retry_count += 1;
                     debug!("遇到 429 错误，即将进行第 {} 次重试", retry_count);
                     let _ = tx.send(format!("遇到频率限制，正在进行第 {} 次重试...", retry_count));
+                    // 添加延迟重试
+                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
                 return Err(ApiError::TooManyRequests(response));
@@ -68,20 +72,18 @@ pub async fn send_request(
         }
 
         let mut stream = response.bytes_stream();
-        let mut current_message = String::new();
         
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
                     if let Ok(text) = String::from_utf8(chunk.to_vec()) {
                         for line in text.lines() {
-                            
                             incomplete_data.push_str(line);
-                            // debug!("处理数据行: {}", incomplete_data);
-
+                            debug!("收到数据: {}", incomplete_data);
                             if incomplete_data.contains("data: ") {
                                 let index = incomplete_data.find("data: ").unwrap();
                                 let data = &incomplete_data[index + 6..];
+                                
                                 if data == "[DONE]" {
                                     debug!("收到结束标记: [DONE]");
                                     let _ = tx.send("__STREAM_DONE__".to_string());
@@ -97,6 +99,8 @@ pub async fn send_request(
                                                 retry_count += 1;
                                                 debug!("遇到API错误，立即进行第 {} 次重试", retry_count);
                                                 let _ = tx.send(format!("遇到API错误，正在进行第 {} 次重试...", retry_count));
+                                                // 添加延迟重试
+                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                                                 continue;
                                             } else {
                                                 let error_msg = if let Some(metadata) = error.get("metadata") {
@@ -124,8 +128,9 @@ pub async fn send_request(
                                         }
 
                                         if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
-                                            current_message.push_str(content);
-                                            let _ = tx.send(current_message.clone());
+                                            if !content.is_empty() {
+                                                let _ = tx.send(content.to_string());
+                                            }
                                         }
                                     }
                                     Err(_) => {
@@ -143,6 +148,8 @@ pub async fn send_request(
                         retry_count += 1;
                         debug!("遇到网络错误，立即进行第 {} 次重试", retry_count);
                         let _ = tx.send(format!("遇到网络错误，正在进行第 {} 次重试...", retry_count));
+                        // 添加延迟重试
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         continue;
                     }
                     return Err(ApiError::Other(e.into()));

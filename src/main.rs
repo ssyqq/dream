@@ -6,9 +6,13 @@ mod ui;
 
 use ui::ChatApp;
 use eframe::egui::{self, FontDefinitions, FontFamily};
+use tokio::runtime::Runtime;
 
 fn main() -> Result<(), eframe::Error> {
     utils::setup_logger();
+    
+    // 创建一个多线程运行时
+    let runtime = Runtime::new().unwrap();
     
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
@@ -19,7 +23,7 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "ChatGPT Client",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             // 配置字体
             let mut fonts = FontDefinitions::default();
             
@@ -49,8 +53,9 @@ fn main() -> Result<(), eframe::Error> {
             // 设置字体
             cc.egui_ctx.set_fonts(fonts);
             
-            // 修改返回类型
-            Ok(Box::new(ChatApp::default()) as Box<dyn eframe::App>)
+            // 创建应用实例
+            let app = ChatApp::new(runtime);
+            Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
     )
 }
