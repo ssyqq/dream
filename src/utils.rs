@@ -148,4 +148,32 @@ pub fn setup_logger() {
         })
         .filter_level(LevelFilter::Debug)
         .init();
+}
+
+pub async fn remove_cached_image(path: &str) -> std::io::Result<()> {
+    debug!("尝试删除缓存图片: {}", path);
+    if let Ok(path) = std::path::PathBuf::from(path).canonicalize() {
+        let cache_dir = ensure_cache_dir().await?;
+        debug!("缓存目录: {:?}", cache_dir);
+        
+        if path.starts_with(&cache_dir) {
+            debug!("确认图片在缓存目录中，开始删除: {:?}", path);
+            match tokio::fs::remove_file(&path).await {
+                Ok(_) => {
+                    debug!("成功删除缓存图片: {:?}", path);
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("删除缓存图片失败: {:?} - {}", path, e);
+                    Err(e)
+                }
+            }
+        } else {
+            debug!("图片不在缓存目录中，跳过删除: {:?}", path);
+            Ok(())
+        }
+    } else {
+        debug!("无法解析图片路径: {}", path);
+        Ok(())
+    }
 } 

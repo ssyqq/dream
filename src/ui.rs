@@ -294,7 +294,7 @@ impl ChatApp {
             false
         };
 
-        debug!("准备发送消息，是否包含图片: {}", image_path.is_some());
+        debug!("准备发���消息，是否包含图片: {}", image_path.is_some());
 
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
@@ -687,6 +687,32 @@ impl eframe::App for ChatApp {
                 if ui.ui_contains_pointer() && 
                    ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Backspace)) {
                     if let Some(current_id) = self.chat_list.current_chat_id.clone() {
+                        debug!("开始删除对话: {}", current_id);
+                        
+                        // 获取要删除的对话
+                        if let Some(chat) = self.chat_list.chats.iter().find(|c| c.id == current_id) {
+                            debug!("找到要删除的对话: {} ({})", chat.name, chat.id);
+                            // 删除所有相关的缓存图片
+                            let messages = chat.messages.clone();
+                            let runtime_handle = self.runtime_handle.clone();
+                            debug!("开始清理对话中的图片缓存，消息数量: {}", messages.len());
+                            
+                            runtime_handle.spawn(async move {
+                                for (index, msg) in messages.iter().enumerate() {
+                                    if let Some(image_path) = &msg.image_path {
+                                        debug!("处理第 {} 条消息的图片: {}", index + 1, image_path);
+                                        if let Err(e) = utils::remove_cached_image(image_path).await {
+                                            error!("删除第 {} 条消息的缓存图片失败: {} - {}", 
+                                                index + 1, image_path, e);
+                                        }
+                                    }
+                                }
+                                debug!("图片缓存清理完成");
+                            });
+                        } else {
+                            debug!("未找到要删除的对话: {}", current_id);
+                        }
+                        
                         // 如果删除是当前选中的对话，清空聊天历史
                         self.chat_history.0.clear();
                         self.chat_list.current_chat_id = None;
@@ -706,6 +732,8 @@ impl eframe::App for ChatApp {
                         }
                         // 保存更改
                         let _ = self.save_chat_list();
+                        
+                        debug!("对话删除完成");
                     }
                 }
             });
