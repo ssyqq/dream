@@ -1,4 +1,4 @@
-use eframe::egui::{self, RichText, ScrollArea, TextEdit, load::SizedTexture};
+use eframe::egui::{self, RichText, ScrollArea, TextEdit };
 use crate::models::{ChatList, Message, Chat, ChatHistory};
 use crate::config;
 use crate::api;
@@ -13,7 +13,6 @@ use log::{debug, error};
 use uuid::Uuid;
 use serde_json::{json, Value as JsonValue};
 use rfd::FileDialog;
-use image::GenericImageView;
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 pub struct ChatApp {
@@ -40,6 +39,7 @@ pub struct ChatApp {
     pub available_models: Vec<String>,
     pub input_focus: bool,
     pub markdown_cache: CommonMarkCache,
+    pub new_model_input: String,
 }
 
 impl Default for ChatApp {
@@ -85,6 +85,7 @@ impl Default for ChatApp {
             available_models: config.api.available_models,
             input_focus: true,
             markdown_cache: CommonMarkCache::default(),
+            new_model_input: String::new(),
         };
         
         // 先尝试加载聊天列表
@@ -158,6 +159,7 @@ impl ChatApp {
             available_models: config.api.available_models,
             input_focus: true,
             markdown_cache: CommonMarkCache::default(),
+            new_model_input: String::new(),
         };
         
         // 先尝试加载聊天列表
@@ -214,7 +216,7 @@ impl ChatApp {
         debug!("正在保存聊天列表...");
         let json = serde_json::to_string_pretty(&self.chat_list)?;
         tokio::fs::write("chat_list.json", json).await?;
-        debug!("聊天列表保存成功");
+        debug!("天列表保存成功");
         Ok(())
     }
 
@@ -245,12 +247,10 @@ impl ChatApp {
     fn new_chat(&mut self) {
         debug!("创建新对话");
         let chat_count = self.chat_list.chats.len();
-        let new_chat = Chat {
-            id: Uuid::new_v4().to_string(),
-            name: format!("新对话 {}", chat_count + 1),
-            messages: Vec::new(),
-            has_been_renamed: false,
-        };
+        let name = format!("新对话 {}", chat_count + 1);
+        
+        // 使用 new 方法创建新对话
+        let new_chat = Chat::new(name);
         let id = new_chat.id.clone();
         
         self.chat_list.chats.insert(0, new_chat);
@@ -463,7 +463,7 @@ impl ChatApp {
                 });
 
                 debug!("发送标题生成请求: {}", title_payload);
-                // 发送标题生成请求
+                // 发送标题生成请
                 match client
                     .post(&api_endpoint)
                     .header("Authorization", format!("Bearer {}", api_key))
@@ -527,14 +527,6 @@ impl ChatApp {
         }
     }
 
-    fn ensure_image_loaded(&mut self, ui: &mut egui::Ui, path: &str) {
-        if !self.texture_cache.contains_key(path) {
-            if let Some(texture) = self.load_image(ui, path) {
-                self.texture_cache.insert(path.to_string(), texture);
-            }
-        }
-    }
-
     fn display_message(&mut self, ui: &mut egui::Ui, msg: &Message) {
         match msg.role.as_str() {
             "user" => {
@@ -544,30 +536,21 @@ impl ChatApp {
                 });
                 ui.add_space(4.0);
                 
-                // 使用 CommonMarkViewer 渲染消息内容
+                // 构建包含图片的 markdown 内容
+                let content = if let Some(path) = &msg.image_path {
+                    // 直接使用 markdown 图片语法
+                    format!("{}\n\n![image]({})", msg.content, path)
+                } else {
+                    msg.content.clone()
+                };
+                
+                // 使用 CommonMarkViewer 渲染完整内容
                 let viewer = if self.dark_mode {
                     CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
                 } else {
                     CommonMarkViewer::new().syntax_theme_light("base16-ocean.light")
                 };
-                viewer.show(ui, &mut self.markdown_cache, &msg.content);
-                
-                if let Some(path) = &msg.image_path {
-                    debug!("正在加载图片: {}", path);
-                    ui.add_space(8.0);
-                    self.ensure_image_loaded(ui, path);
-                    
-                    if let Some(texture) = self.texture_cache.get(path) {
-                        debug!("图片加载成功，准备显示");
-                        let max_display_size = 200.0;
-                        let size = texture.size_vec2();
-                        let scale = max_display_size / size.x.max(size.y);
-                        let display_size = egui::vec2(size.x * scale, size.y * scale);
-                        
-                        let sized_texture = SizedTexture::new(texture.id(), display_size);
-                        ui.add(egui::Image::new(sized_texture));
-                    }
-                }
+                viewer.show(ui, &mut self.markdown_cache, &content);
             }
             "assistant" => {
                 ui.horizontal(|ui| {
@@ -576,7 +559,6 @@ impl ChatApp {
                 });
                 ui.add_space(4.0);
                 
-                // 使用 CommonMarkViewer 渲染消息内容
                 let viewer = if self.dark_mode {
                     CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
                 } else {
@@ -586,79 +568,6 @@ impl ChatApp {
             }
             _ => {}
         }
-    }
-
-    async fn load_image_async(&self, path: &str) -> Option<(u32, u32, Vec<u8>)> {
-        debug!("开始异步加载图片: {}", path);
-        // 异步读取图片文件
-        let image_bytes = match tokio::fs::read(path).await {
-            Ok(bytes) => {
-                debug!("成功读取图片文件，大小: {} bytes", bytes.len());
-                bytes
-            }
-            Err(e) => {
-                error!("读取图片文件失败: {} - {}", path, e);
-                return None;
-            }
-        };
-
-        // 在单独的线程处理图片
-        let result = tokio::task::spawn_blocking(move || {
-            let image = match image::load_from_memory(&image_bytes) {
-                Ok(img) => img,
-                Err(e) => {
-                    error!("解码图片数据失败: {}", e);
-                    return None;
-                }
-            };
-
-            let dimensions = image.dimensions();
-            let max_size = 800;
-            let (width, height) = if dimensions.0 > max_size || dimensions.1 > max_size {
-                let scale = max_size as f32 / dimensions.0.max(dimensions.1) as f32;
-                ((dimensions.0 as f32 * scale) as u32, 
-                 (dimensions.1 as f32 * scale) as u32)
-            } else {
-                dimensions
-            };
-            
-            let rgba_image = image.into_rgba8();
-            let resized = image::imageops::resize(
-                &rgba_image,
-                width,
-                height,
-                image::imageops::FilterType::Triangle
-            );
-            
-            Some((width, height, resized.as_raw().to_vec()))
-        }).await.unwrap_or_else(|e| {
-            error!("图片处理任务失败: {}", e);
-            None
-        });
-
-        result
-    }
-
-    fn load_image(&mut self, ui: &mut egui::Ui, path: &str) -> Option<egui::TextureHandle> {
-        debug!("加载图片: {}", path);
-        // 使用 block_on 执行步加载
-        if let Some((width, height, pixels)) = self.runtime_handle.block_on(async {
-            self.load_image_async(path).await
-        }) {
-            debug!("图片加载成功: {}x{}", width, height);
-            let texture = ui.ctx().load_texture(
-                format!("img_{}", path.replace("/", "_")),
-                egui::ColorImage::from_rgba_unmultiplied(
-                    [width as _, height as _],
-                    &pixels
-                ),
-                egui::TextureOptions::default(),
-            );
-            
-            return Some(texture);
-        }
-        debug!("图片加载失败");
-        None
     }
 }
 
@@ -688,6 +597,7 @@ impl Clone for ChatApp {
             available_models: self.available_models.clone(),
             input_focus: self.input_focus,
             markdown_cache: CommonMarkCache::default(),
+            new_model_input: self.new_model_input.clone(),
         }
     }
 }
@@ -801,7 +711,7 @@ impl eframe::App for ChatApp {
                                     if let Some(image_path) = &msg.image_path {
                                         debug!("处理第 {} 条消息的图片: {}", index + 1, image_path);
                                         if let Err(e) = utils::remove_cached_image(image_path).await {
-                                            error!("删除第 {} 条消���的缓存图片失败: {} - {}", 
+                                            error!("删除第 {} 条消的缓存图片失败: {} - {}", 
                                                 index + 1, image_path, e);
                                         }
                                     }
@@ -935,25 +845,31 @@ impl eframe::App for ChatApp {
                                         }
 
                                         // 添加新模型的输入框
-                                        static mut NEW_MODEL: String = String::new();
-                                        unsafe {
-                                            ui.horizontal(|ui| {
-                                                let text_edit = ui.text_edit_singleline(&mut NEW_MODEL);
-                                                if ui.button("添加").clicked() && !NEW_MODEL.is_empty() {
-                                                    if !self.available_models.contains(&NEW_MODEL) {
-                                                        self.available_models.push(NEW_MODEL.clone());
-                                                        NEW_MODEL.clear();
-                                                        config_changed = true;
-                                                    }
+                                        ui.horizontal(|ui| {
+                                            if ui.text_edit_singleline(&mut self.new_model_input).lost_focus() 
+                                                && ui.input(|i| i.key_pressed(egui::Key::Enter))
+                                                && !self.new_model_input.is_empty()
+                                            {
+                                                if !self.available_models.contains(&self.new_model_input) {
+                                                    self.available_models.push(self.new_model_input.clone());
+                                                    self.new_model_input.clear();
+                                                    config_changed = true;
                                                 }
-                                            });
-                                        }
+                                            }
+                                            if ui.button("添加").clicked() && !self.new_model_input.is_empty() {
+                                                if !self.available_models.contains(&self.new_model_input) {
+                                                    self.available_models.push(self.new_model_input.clone());
+                                                    self.new_model_input.clear();
+                                                    config_changed = true;
+                                                }
+                                            }
+                                        });
                                     });
                                     ui.end_row();
                                 });
                             
                             if config_changed {
-                                debug!("配置已更改，正在保存");
+                                debug!("配置已更改正在保存");
                                 if let Err(e) = self.save_config(frame) {
                                     error!("保存配置失败: {}", e);
                                 }
@@ -1024,7 +940,7 @@ impl eframe::App for ChatApp {
 
                             // 修改模型选择部分，使用图标
                             ui.add_space(10.0);
-                            egui::ComboBox::from_id_source("model_selector")
+                            egui::ComboBox::from_id_salt("model_selector")
                                 .selected_text(&self.model_name)
                                 .show_ui(ui, |ui| {
                                     for model in &self.available_models {
@@ -1077,6 +993,14 @@ impl eframe::App for ChatApp {
             if let Some(receiver) = &mut self.receiver {
                 if let Ok(response) = receiver.try_recv() {  // 只获取一条消息
                     match response.as_str() {
+                        "__CLEAR_ERRORS__" => {
+                            // 清空最后一条消息如果它是错误提示
+                            if let Some(last_msg) = self.chat_history.0.last() {
+                                if last_msg.content.starts_with("遇到API错误") {
+                                    self.chat_history.0.pop();
+                                }
+                            }
+                        }
                         s if s.starts_with("__UPDATE_MESSAGE_IMAGE__:") => {
                             if let Some(path) = s.strip_prefix("__UPDATE_MESSAGE_IMAGE__:") {
                                 if let Some(last_msg) = self.chat_history.0.last_mut() {
@@ -1099,7 +1023,7 @@ impl eframe::App for ChatApp {
                                         debug!("找到对应的聊天，更新标题");
                                         chat.name = title.to_string();
                                         chat.has_been_renamed = true;
-                                        chat.messages = self.chat_history.0.clone();  // 同时更新消息历史
+                                        chat.messages = self.chat_history.0.clone();  // 同更新消息历史
                                         
                                         // 保存更新后的聊天列表
                                         if let Err(e) = self.save_chat_list() {
@@ -1119,7 +1043,7 @@ impl eframe::App for ChatApp {
                                     chat.messages = self.chat_history.0.clone();
                                     
                                     // 在这里生成标题
-                                    if !chat.has_been_renamed {  // 使用 has_been_renamed 替代 should_generate_title
+                                    if !chat.has_been_renamed {
                                         debug!("开始生成标题");
                                         // 获取用户输入和完整的助手回复
                                         let user_input = chat.messages.iter()
@@ -1164,7 +1088,7 @@ impl eframe::App for ChatApp {
                                         let client = self.client.clone();
                                         
                                         // 创建新的通道用于标题更新
-                                        let (tx, mut rx) = mpsc::unbounded_channel();
+                                        let (tx, rx) = mpsc::unbounded_channel();
                                         
                                         runtime_handle.spawn(async move {
                                             debug!("发送标题生成请求: {}", title_payload);
@@ -1206,7 +1130,7 @@ impl eframe::App for ChatApp {
                                             }
                                         });
                                         
-                                        // 设置接收器
+                                        // 设置新的接收器
                                         self.receiver = Some(rx);
                                     }
                                     

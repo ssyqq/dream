@@ -3,7 +3,6 @@ use uuid::Uuid;
 use serde_json::{json, Value as JsonValue};
 use std::path::Path;
 use crate::utils;
-use log::debug;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Message {
@@ -49,10 +48,6 @@ impl Message {
             image_path: None,
         }
     }
-
-    pub fn has_image(&self) -> bool {
-        self.image_path.is_some()
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -67,12 +62,6 @@ impl ChatHistory {
         self.0.last()
             .map(|msg| msg.role == "assistant")
             .unwrap_or(false)
-    }
-
-    pub fn update_last_message(&mut self, content: String) {
-        if let Some(last_msg) = self.0.last_mut() {
-            last_msg.content = content;
-        }
     }
 }
 

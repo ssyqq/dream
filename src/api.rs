@@ -6,7 +6,7 @@ use log::{debug, error};
 
 #[derive(Debug)]
 pub enum ApiError {
-    TooManyRequests(reqwest::Response),
+    TooManyRequests(()),
     Other(reqwest::Error),
     HttpError(reqwest::Response),
 }
@@ -65,7 +65,7 @@ pub async fn send_request(
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
-                return Err(ApiError::TooManyRequests(response));
+                return Err(ApiError::TooManyRequests(()));
             }
             return Err(ApiError::HttpError(response));
         }
@@ -95,11 +95,12 @@ pub async fn send_request(
                                         if let Some(error) = json.get("error") {
                                             if retry_enabled && retry_count < max_retries {
                                                 retry_count += 1;
-                                                debug!("遇到API错误，立即进行第 {} 次重试", retry_count);
+                                                debug!("遇到API错误，即将进行第 {} 次重试", retry_count);
                                                 let _ = tx.send(format!("遇到API错误，正在进行第 {} 次重试...", retry_count));
                                                 // 添加延迟重试
                                                 tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                                continue;
+                                                // 重要：跳出内层循环，返回到外层循环重新发送请求
+                                                break;
                                             } else {
                                                 let error_msg = if let Some(metadata) = error.get("metadata") {
                                                     if let Some(raw) = metadata.get("raw") {
@@ -127,8 +128,11 @@ pub async fn send_request(
 
                                         if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
                                             if !content.is_empty() {
+                                                if retry_count > 0 {
+                                                    let _ = tx.send("__CLEAR_ERRORS__".to_string());
+                                                    retry_count = 0;  // 重置重试计数
+                                                }
                                                 let _ = tx.send(content.to_string());
-                                                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                                             }
                                         }
                                     }
@@ -145,17 +149,24 @@ pub async fn send_request(
                     error!("流式数据接收错误: {}", e);
                     if retry_enabled && retry_count < max_retries {
                         retry_count += 1;
-                        debug!("遇到网络错误，立即进行第 {} 次重试", retry_count);
+                        debug!("遇到网络错误，即将进行第 {} 次重试", retry_count);
                         let _ = tx.send(format!("遇到网络错误，正在进行第 {} 次重试...", retry_count));
                         // 添加延迟重试
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                        continue;
+                        break;  // 跳出内层循环，返回到外层循环重新发送请求
                     }
                     return Err(ApiError::Other(e.into()));
                 }
             }
         }
         
-        return Ok(());
+        // 如果没有遇到错误并且正常完成，就退出循环
+        if retry_count == 0 {
+            break;
+        }
+        // 否则继续重试
+        continue;
     }
+    
+    Ok(())
 } 
