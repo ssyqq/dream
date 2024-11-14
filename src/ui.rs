@@ -37,6 +37,7 @@ pub struct ChatApp {
     pub processing_image: Option<tokio::task::JoinHandle<Result<PathBuf, ImageError>>>,
     pub dark_mode: bool,
     pub available_models: Vec<String>,
+    pub input_focus: bool,
 }
 
 impl Default for ChatApp {
@@ -80,9 +81,15 @@ impl Default for ChatApp {
             processing_image: None,
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
+            input_focus: true,
         };
         
-        // 如果没有任何对话，创建一个默认对话，但不选中它
+        // 先尝试加载聊天列表
+        if let Err(e) = app.load_chat_list() {
+            eprintln!("加载聊天列表失败: {}", e);
+        }
+        
+        // 只有在加载后聊天列表仍为空时，才创建默认对话
         if app.chat_list.chats.is_empty() {
             let id = Uuid::new_v4().to_string();
             let new_chat = Chat {
@@ -92,11 +99,7 @@ impl Default for ChatApp {
                 has_been_renamed: false,
             };
             app.chat_list.chats.insert(0, new_chat);
-        }
-        
-        // 尝试加载聊天列表
-        if let Err(e) = app.load_chat_list() {
-            eprintln!("加载聊天列表失败: {}", e);
+            app.chat_list.current_chat_id = Some(id);
         }
         
         // 确保没有选中任何对话
@@ -150,9 +153,15 @@ impl ChatApp {
             processing_image: None,
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
+            input_focus: true,
         };
         
-        // 如果没有任何对话，创建一个默认对话，但不选中它
+        // 先尝试加载聊天列表
+        if let Err(e) = app.load_chat_list() {
+            eprintln!("加载聊天列表失败: {}", e);
+        }
+        
+        // 只有在加载后聊天列表仍为空时，才创建默认对话
         if app.chat_list.chats.is_empty() {
             let id = Uuid::new_v4().to_string();
             let new_chat = Chat {
@@ -162,11 +171,7 @@ impl ChatApp {
                 has_been_renamed: false,
             };
             app.chat_list.chats.insert(0, new_chat);
-        }
-        
-        // 尝试加载聊天列表
-        if let Err(e) = app.load_chat_list() {
-            eprintln!("加载聊天列表失败: {}", e);
+            app.chat_list.current_chat_id = Some(id);
         }
         
         // 确保没有选中任何对话
@@ -236,12 +241,18 @@ impl ChatApp {
     fn new_chat(&mut self) {
         debug!("创建新对话");
         let chat_count = self.chat_list.chats.len();
-        let new_chat = Chat::new(format!("新对话 {}", chat_count + 1));
+        let new_chat = Chat {
+            id: Uuid::new_v4().to_string(),
+            name: format!("新对话 {}", chat_count + 1),
+            messages: Vec::new(),
+            has_been_renamed: false,
+        };
         let id = new_chat.id.clone();
         
         self.chat_list.chats.insert(0, new_chat);
         self.chat_list.current_chat_id = Some(id);
         self.chat_history.0.clear();
+        self.input_focus = true;
         
         if let Err(e) = self.save_chat_list() {
             error!("保存聊天列表失败: {}", e);
@@ -253,7 +264,13 @@ impl ChatApp {
         let user_input = std::mem::take(&mut self.input_text);
         let image_path = self.selected_image.take();
         
-        // 如果有正在处理的图片，等待其完成
+        // 如果没有选中的聊天，创建一个新的
+        if self.chat_list.current_chat_id.is_none() {
+            debug!("没有选中的聊天，创建新对话");
+            self.new_chat();
+        }
+        
+        // 处理图片
         let processed_image = if let Some(processing) = self.processing_image.take() {
             match self.runtime_handle.block_on(async {
                 match processing.await {
@@ -271,7 +288,6 @@ impl ChatApp {
                 }
             }
         } else if let Some(ref path) = image_path {
-            // 如果图片还没开始处理，立即处理
             match self.runtime_handle.block_on(async {
                 utils::copy_to_cache(path).await
             }) {
@@ -304,17 +320,11 @@ impl ChatApp {
 
         debug!("准备发消息，是否包含图片: {}", image_path.is_some());
 
-        // 如果没有选中的聊天，创建一个新的
-        if self.chat_list.current_chat_id.is_none() {
-            debug!("没有选中的聊天，创建新对话");
-            self.new_chat();
-        }
-
         // 创建通道
         let (tx, rx) = mpsc::unbounded_channel();
         self.receiver = Some(rx);
 
-        // 立即创建并添加用户消息（只包含文字）
+        // 立即创建并添加用户消息
         self.chat_history.add_message(new_message.clone());
 
         // 启动异步任务
@@ -422,7 +432,7 @@ impl ChatApp {
                     "messages": vec![
                         json!({
                             "role": "system",
-                            "content": "请根据用户的输入生成一个简短的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
+                            "content": "请根据用户的输生成一个简的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
                         }),
                         json!({
                             "role": "user",
@@ -493,7 +503,7 @@ impl ChatApp {
                 last_msg.content.push_str(&response);
             }
         } else {
-            debug!("添加新的助手消息");
+            debug!("加新的助手消息");
             self.chat_history.add_message(Message::new_assistant(response));
         }
     }
@@ -629,6 +639,7 @@ impl Clone for ChatApp {
             processing_image: None,
             dark_mode: self.dark_mode,
             available_models: self.available_models.clone(),
+            input_focus: self.input_focus,
         }
     }
 }
@@ -674,7 +685,7 @@ impl eframe::App for ChatApp {
                                     let mut selected_messages = None;
                                     let mut selected_id = None;
                                     
-                                    // 创建一个反迭代器来倒序显示聊天列表
+                                    // 创建一个反迭代器来倒序显聊天列表
                                     for chat in self.chat_list.chats.iter().rev() {
                                         let is_selected = self.chat_list.current_chat_id
                                             .as_ref()
@@ -711,12 +722,12 @@ impl eframe::App for ChatApp {
                                         self.show_settings = !self.show_settings;
                                     }
                                     
-                                    // 添加主题切换按钮
+                                    // 添主题切换按钮
                                     if ui.button(if self.dark_mode { "☀" } else { "🌙" }).clicked() {
                                         self.dark_mode = !self.dark_mode;
                                         // 保存主题设置
                                         if let Err(e) = self.save_config(frame) {
-                                            error!("保存配��失败: {}", e);
+                                            error!("保存配置失败: {}", e);
                                         }
                                     }
                                 });
@@ -748,7 +759,7 @@ impl eframe::App for ChatApp {
                                         }
                                     }
                                 }
-                                debug!("图片缓存清理完成");
+                                debug!("图片缓存理完成");
                             });
                         } else {
                             debug!("未找到要删除的对话: {}", current_id);
@@ -983,9 +994,19 @@ impl eframe::App for ChatApp {
                         ui.horizontal(|ui| {
                             let text_edit = TextEdit::multiline(&mut self.input_text)
                                 .desired_rows(3)
-                                .min_size(egui::vec2(available_width - 50.0, 60.0));
+                                .min_size(egui::vec2(available_width - 50.0, 60.0))
+                                .id("chat_input".into());
                             
                             let text_edit_response = ui.add(text_edit);
+                            
+                            // 如果需要聚焦且输入框还没有焦点
+                            if self.input_focus && !text_edit_response.has_focus() {
+                                text_edit_response.request_focus();
+                            }
+                            // 一旦获得焦点，就将 input_focus 设置为 false
+                            if text_edit_response.has_focus() {
+                                self.input_focus = false;
+                            }
                             
                             if ui.add_sized(
                                 [40.0, 60.0],
@@ -995,6 +1016,7 @@ impl eframe::App for ChatApp {
                             {
                                 if !self.input_text.is_empty() || self.selected_image.is_some() {
                                     self.send_message();
+                                    self.input_focus = true;  // 发送消息后重新设置焦点标志
                                 }
                             }
                         });
@@ -1028,6 +1050,12 @@ impl eframe::App for ChatApp {
                                         debug!("找到对应的聊天，更新标题");
                                         chat.name = title.to_string();
                                         chat.has_been_renamed = true;
+                                        chat.messages = self.chat_history.0.clone();  // 同时更新消息历史
+                                        
+                                        // 保存更新后的聊天列表
+                                        if let Err(e) = self.save_chat_list() {
+                                            error!("保存聊天列表失败: {}", e);
+                                        }
                                     }
                                 }
                             }
