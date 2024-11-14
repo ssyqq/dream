@@ -60,9 +60,8 @@ pub async fn send_request(
                 if retry_enabled && retry_count < max_retries {
                     retry_count += 1;
                     debug!("遇到 429 错误，即将进行第 {} 次重试", retry_count);
+                    let _ = tx.send("__CLEAR_ERRORS__".to_string());
                     let _ = tx.send(format!("遇到频率限制，正在进行第 {} 次重试...", retry_count));
-                    // 添加延迟重试
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                     continue;
                 }
                 return Err(ApiError::TooManyRequests(()));
@@ -97,9 +96,6 @@ pub async fn send_request(
                                                 retry_count += 1;
                                                 debug!("遇到API错误，即将进行第 {} 次重试", retry_count);
                                                 let _ = tx.send(format!("遇到API错误，正在进行第 {} 次重试...", retry_count));
-                                                // 添加延迟重试
-                                                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-                                                // 重要：跳出内层循环，返回到外层循环重新发送请求
                                                 break;
                                             } else {
                                                 let error_msg = if let Some(metadata) = error.get("metadata") {
@@ -151,8 +147,6 @@ pub async fn send_request(
                         retry_count += 1;
                         debug!("遇到网络错误，即将进行第 {} 次重试", retry_count);
                         let _ = tx.send(format!("遇到网络错误，正在进行第 {} 次重试...", retry_count));
-                        // 添加延迟重试
-                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                         break;  // 跳出内层循环，返回到外层循环重新发送请求
                     }
                     return Err(ApiError::Other(e.into()));

@@ -351,7 +351,7 @@ impl ChatApp {
         self.runtime.spawn(async move {
             // 先处理图片（如果有）
             let cached_image_path = if let Some(path) = image_path {
-                // 如果已经有处理的图片路径，直接使用它
+                // 如果已经有���理的图片路径，直接使用它
                 if let Some(ref processed_path) = new_message.image_path {
                     debug!("使用已处理的缓存图片: {:?}", processed_path);
                     Some(PathBuf::from(processed_path))
@@ -704,7 +704,7 @@ impl eframe::App for ChatApp {
                             // 删除所有相关的缓存图片
                             let messages = chat.messages.clone();
                             let runtime_handle = self.runtime_handle.clone();
-                            debug!("开始清理对话中的图片缓存，消数量: {}", messages.len());
+                            debug!("开始清理对话���的图片缓存，消数���: {}", messages.len());
                             
                             runtime_handle.spawn(async move {
                                 for (index, msg) in messages.iter().enumerate() {
@@ -996,7 +996,7 @@ impl eframe::App for ChatApp {
                         "__CLEAR_ERRORS__" => {
                             // 清空最后一条消息如果它是错误提示
                             if let Some(last_msg) = self.chat_history.0.last() {
-                                if last_msg.content.starts_with("遇到API错误") {
+                                if last_msg.content.starts_with("遇到") {
                                     self.chat_history.0.pop();
                                 }
                             }
