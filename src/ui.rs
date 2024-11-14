@@ -489,7 +489,6 @@ impl ChatApp {
     fn handle_response(&mut self, response: String) {
         debug!("处理响应: {}", response);
         if self.chat_history.last_message_is_assistant() {
-            debug!("更新助手的最后一条消息");
             if let Some(last_msg) = self.chat_history.0.last_mut() {
                 last_msg.content.push_str(&response);
             }
@@ -636,6 +635,11 @@ impl Clone for ChatApp {
 
 impl eframe::App for ChatApp {
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        // 如果正在接收消息流，设置较高的刷新率
+        if self.receiver.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        
         // 在每次更新时设置主题
         if self.dark_mode {
             ctx.set_visuals(egui::Visuals::dark());
@@ -712,7 +716,7 @@ impl eframe::App for ChatApp {
                                         self.dark_mode = !self.dark_mode;
                                         // 保存主题设置
                                         if let Err(e) = self.save_config(frame) {
-                                            error!("保存配置失败: {}", e);
+                                            error!("保存配��失败: {}", e);
                                         }
                                     }
                                 });
@@ -966,7 +970,11 @@ impl eframe::App for ChatApp {
                                 .selected_text(&self.model_name)
                                 .show_ui(ui, |ui| {
                                     for model in &self.available_models {
-                                        ui.selectable_value(&mut self.model_name, model.clone(), model);
+                                        if ui.selectable_value(&mut self.model_name, model.clone(), model).changed() {
+                                            if let Err(e) = self.save_config(frame) {
+                                                error!("保存配置失败: {}", e);
+                                            }
+                                        }
                                     }
                                 });
                         });
@@ -1042,8 +1050,6 @@ impl eframe::App for ChatApp {
                             self.handle_response(response.to_string());
                         }
                     }
-                    // 每处理一条消息就请求重绘
-                    ctx.request_repaint();
                 }
             }
         });
