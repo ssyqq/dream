@@ -21,3 +21,4 @@ rfd = "0.15.0"
 rayon = "1.7"
 num_cpus = "1.15"
 lazy_static = "1.4"
+egui_commonmark = { version = "0.18.0", features = ["better_syntax_highlighting"] }

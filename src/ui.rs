@@ -14,6 +14,7 @@ use uuid::Uuid;
 use serde_json::{json, Value as JsonValue};
 use rfd::FileDialog;
 use image::GenericImageView;
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 pub struct ChatApp {
     pub input_text: String,
@@ -38,6 +39,7 @@ pub struct ChatApp {
     pub dark_mode: bool,
     pub available_models: Vec<String>,
     pub input_focus: bool,
+    pub markdown_cache: CommonMarkCache,
 }
 
 impl Default for ChatApp {
@@ -82,6 +84,7 @@ impl Default for ChatApp {
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
             input_focus: true,
+            markdown_cache: CommonMarkCache::default(),
         };
         
         // 先尝试加载聊天列表
@@ -154,6 +157,7 @@ impl ChatApp {
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
             input_focus: true,
+            markdown_cache: CommonMarkCache::default(),
         };
         
         // 先尝试加载聊天列表
@@ -207,7 +211,7 @@ impl ChatApp {
     }
 
     async fn save_chat_list_async(&self) -> Result<(), Box<dyn std::error::Error>> {
-        debug!("正在保存天列表...");
+        debug!("正在保存聊天列表...");
         let json = serde_json::to_string_pretty(&self.chat_list)?;
         tokio::fs::write("chat_list.json", json).await?;
         debug!("聊天列表保存成功");
@@ -341,10 +345,13 @@ impl ChatApp {
         let should_generate_title = should_generate_title;
         let tx_clone = tx.clone();  // 克隆通道发送端
 
+        // 在 spawn 之前克隆需要的数据
+        let chat_history = self.chat_history.0.clone();
+
         self.runtime.spawn(async move {
             // 先处理图片（如果有）
             let cached_image_path = if let Some(path) = image_path {
-                // 如果已经有处理过的图片路径，直接使用它
+                // 如果已经有处理的图片路径，直接使用它
                 if let Some(ref processed_path) = new_message.image_path {
                     debug!("使用已处理的缓存图片: {:?}", processed_path);
                     Some(PathBuf::from(processed_path))
@@ -423,21 +430,33 @@ impl ChatApp {
                 let _ = tx_clone.send("__STREAM_DONE__".to_string());
             }
 
-            // 如果需要生成标题
+            // 在等待助手回复完成后再生成标题
             if should_generate_title {
                 debug!("需要生成标题，当前对话ID: {:?}", chat_id);
+                // 使用克隆的 chat_history 而不是 self.chat_history
+                let assistant_response = chat_history.last()
+                    .filter(|msg| msg.role == "assistant")
+                    .map(|msg| msg.content.clone())
+                    .unwrap_or_default();
+                
                 debug!("开始生成标题，用户输入: {}", user_input);
+                debug!("助手回复: {}", assistant_response);
+                
                 let title_payload = json!({
                     "model": model_name.clone(),
                     "messages": vec![
                         json!({
                             "role": "system",
-                            "content": "请根据用户的输生成一个简的标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。"
+                            "content": "请根据用户的输入和AI的回复生成一个简短的对话标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。标题应该概括对话的主要内容或主题。"
                         }),
                         json!({
                             "role": "user",
-                            "content": user_input.clone()
+                            "content": user_input
                         }),
+                        json!({
+                            "role": "assistant",
+                            "content": assistant_response
+                        })
                     ],
                     "temperature": 0.7,
                     "max_tokens": 60
@@ -477,7 +496,7 @@ impl ChatApp {
                                 }
                             }
                             Err(e) => {
-                                error!("析标题生成响应失败: {}", e);
+                                error!("解析标题生成响应失败: {}", e);
                             }
                         }
                     }
@@ -519,13 +538,27 @@ impl ChatApp {
     fn display_message(&mut self, ui: &mut egui::Ui, msg: &Message) {
         match msg.role.as_str() {
             "user" => {
-                ui.label(RichText::new("You: ").strong());
-                ui.label(&msg.content);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("You:").strong().size(16.0));
+                    ui.add_space(8.0);
+                });
+                ui.add_space(4.0);
+                
+                // 使用 CommonMarkViewer 渲染消息内容
+                let viewer = if self.dark_mode {
+                    CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
+                } else {
+                    CommonMarkViewer::new().syntax_theme_light("base16-ocean.light")
+                };
+                viewer.show(ui, &mut self.markdown_cache, &msg.content);
                 
                 if let Some(path) = &msg.image_path {
+                    debug!("正在加载图片: {}", path);
+                    ui.add_space(8.0);
                     self.ensure_image_loaded(ui, path);
                     
                     if let Some(texture) = self.texture_cache.get(path) {
+                        debug!("图片加载成功，准备显示");
                         let max_display_size = 200.0;
                         let size = texture.size_vec2();
                         let scale = max_display_size / size.x.max(size.y);
@@ -537,33 +570,44 @@ impl ChatApp {
                 }
             }
             "assistant" => {
-                ui.label(RichText::new("AI: ").strong());
-                ui.label(&msg.content);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("AI:").strong().size(16.0));
+                    ui.add_space(8.0);
+                });
+                ui.add_space(4.0);
+                
+                // 使用 CommonMarkViewer 渲染消息内容
+                let viewer = if self.dark_mode {
+                    CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
+                } else {
+                    CommonMarkViewer::new().syntax_theme_light("base16-ocean.light")
+                };
+                viewer.show(ui, &mut self.markdown_cache, &msg.content);
             }
             _ => {}
         }
     }
 
     async fn load_image_async(&self, path: &str) -> Option<(u32, u32, Vec<u8>)> {
-        debug!("异步加载图片: {}", path);
+        debug!("开始异步加载图片: {}", path);
         // 异步读取图片文件
         let image_bytes = match tokio::fs::read(path).await {
             Ok(bytes) => {
-                debug!("读取图片文件成功，大小: {} bytes", bytes.len());
+                debug!("成功读取图片文件，大小: {} bytes", bytes.len());
                 bytes
             }
             Err(e) => {
-                error!("读取图片文件失败: {}", e);
+                error!("读取图片文件失败: {} - {}", path, e);
                 return None;
             }
         };
 
-        // 在单独的线程���处理片
+        // 在单独的线程处理图片
         let result = tokio::task::spawn_blocking(move || {
             let image = match image::load_from_memory(&image_bytes) {
                 Ok(img) => img,
                 Err(e) => {
-                    error!("加载图片失败: {}", e);
+                    error!("解码图片数据失败: {}", e);
                     return None;
                 }
             };
@@ -587,7 +631,10 @@ impl ChatApp {
             );
             
             Some((width, height, resized.as_raw().to_vec()))
-        }).await.unwrap_or(None);
+        }).await.unwrap_or_else(|e| {
+            error!("图片处理任务失败: {}", e);
+            None
+        });
 
         result
     }
@@ -640,6 +687,7 @@ impl Clone for ChatApp {
             dark_mode: self.dark_mode,
             available_models: self.available_models.clone(),
             input_focus: self.input_focus,
+            markdown_cache: CommonMarkCache::default(),
         }
     }
 }
@@ -722,7 +770,7 @@ impl eframe::App for ChatApp {
                                         self.show_settings = !self.show_settings;
                                     }
                                     
-                                    // 添主题切换按钮
+                                    // 添题切钮
                                     if ui.button(if self.dark_mode { "☀" } else { "🌙" }).clicked() {
                                         self.dark_mode = !self.dark_mode;
                                         // 保存主题设置
@@ -746,14 +794,14 @@ impl eframe::App for ChatApp {
                             // 删除所有相关的缓存图片
                             let messages = chat.messages.clone();
                             let runtime_handle = self.runtime_handle.clone();
-                            debug!("开始清理对话中的图片缓存，消息数量: {}", messages.len());
+                            debug!("开始清理对话中的图片缓存，消数量: {}", messages.len());
                             
                             runtime_handle.spawn(async move {
                                 for (index, msg) in messages.iter().enumerate() {
                                     if let Some(image_path) = &msg.image_path {
                                         debug!("处理第 {} 条消息的图片: {}", index + 1, image_path);
                                         if let Err(e) = utils::remove_cached_image(image_path).await {
-                                            error!("删除第 {} 条消息的缓存图片失败: {} - {}", 
+                                            error!("删除第 {} 条消���的缓存图片失败: {} - {}", 
                                                 index + 1, image_path, e);
                                         }
                                     }
@@ -867,7 +915,7 @@ impl eframe::App for ChatApp {
                                     ui.end_row();
 
                                     // 添加模型管理部分
-                                    ui.label("常用模型:");
+                                    ui.label("常用模:");
                                     ui.vertical(|ui| {
                                         // 显示现有模型列表
                                         let mut models_to_remove = Vec::new();
@@ -1004,7 +1052,7 @@ impl eframe::App for ChatApp {
                             if self.input_focus && !text_edit_response.has_focus() {
                                 text_edit_response.request_focus();
                             }
-                            // 一旦获得焦点，就将 input_focus 设置为 false
+                            // 一旦获得焦点，将 input_focus 设置为 false
                             if text_edit_response.has_focus() {
                                 self.input_focus = false;
                             }
@@ -1069,6 +1117,99 @@ impl eframe::App for ChatApp {
                                     .find(|c| &c.id == current_id)
                                 {
                                     chat.messages = self.chat_history.0.clone();
+                                    
+                                    // 在这里生成标题
+                                    if !chat.has_been_renamed {  // 使用 has_been_renamed 替代 should_generate_title
+                                        debug!("开始生成标题");
+                                        // 获取用户输入和完整的助手回复
+                                        let user_input = chat.messages.iter()
+                                            .find(|msg| msg.role == "user")
+                                            .map(|msg| msg.content.clone())
+                                            .unwrap_or_default();
+                                            
+                                        let assistant_response = chat.messages.iter()
+                                            .find(|msg| msg.role == "assistant")
+                                            .map(|msg| msg.content.clone())
+                                            .unwrap_or_default();
+                                        
+                                        let title_payload = json!({
+                                            "model": self.model_name.clone(),
+                                            "messages": vec![
+                                                json!({
+                                                    "role": "system",
+                                                    "content": "你善于总结标题，标题不超过10个字，不要包含有任何解释和符号。"
+                                                }),
+                                                json!({
+                                                    "role": "user",
+                                                    "content": user_input
+                                                }),
+                                                json!({
+                                                    "role": "assistant",
+                                                    "content": assistant_response
+                                                }),
+                                                json!({
+                                                    "role": "user",
+                                                    "content": "总结我们对话的标题，标题不超过10个字，不要包含有任何解释和符号。"
+                                                }),
+                                            ],
+                                            "temperature": 0.7,
+                                            "max_tokens": 60
+                                        });
+
+                                        // 发送标题生成请求
+                                        let runtime_handle = self.runtime_handle.clone();
+                                        let api_endpoint = self.api_endpoint.clone();
+                                        let api_key = self.api_key.clone();
+                                        let chat_id = current_id.clone();
+                                        let client = self.client.clone();
+                                        
+                                        // 创建新的通道用于标题更新
+                                        let (tx, mut rx) = mpsc::unbounded_channel();
+                                        
+                                        runtime_handle.spawn(async move {
+                                            debug!("发送标题生成请求: {}", title_payload);
+                                            match client
+                                                .post(&api_endpoint)
+                                                .header("Authorization", format!("Bearer {}", api_key))
+                                                .header("Content-Type", "application/json")
+                                                .json(&title_payload)
+                                                .send()
+                                                .await
+                                            {
+                                                Ok(response) => {
+                                                    debug!("收到标题生成响应: {:?}", response.status());
+                                                    match response.json::<JsonValue>().await {
+                                                        Ok(json) => {
+                                                            debug!("标题生成响应JSON: {:?}", json);
+                                                            if let Some(title) = json["choices"][0]["message"]["content"]
+                                                                .as_str()
+                                                                .map(|s| s.trim().to_string())
+                                                            {
+                                                                debug!("成功生成标题: {}", title);
+                                                                let title_message = format!("__TITLE_UPDATE__{}:{}", chat_id, title);
+                                                                debug!("发送标题更新消息: {}", title_message);
+                                                                if let Err(e) = tx.send(title_message) {
+                                                                    error!("发送标题更新消息失败: {}", e);
+                                                                }
+                                                            } else {
+                                                                error!("无法从响应中提取标题");
+                                                            }
+                                                        }
+                                                        Err(e) => {
+                                                            error!("解析标题生成响应失败: {}", e);
+                                                        }
+                                                    }
+                                                }
+                                                Err(e) => {
+                                                    error!("标题生成请求失败: {}", e);
+                                                }
+                                            }
+                                        });
+                                        
+                                        // 设置接收器
+                                        self.receiver = Some(rx);
+                                    }
+                                    
                                     if let Err(e) = self.save_chat_list() {
                                         error!("保存聊天列表失败: {}", e);
                                     }
