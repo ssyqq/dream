@@ -558,7 +558,7 @@ impl ChatApp {
             }
         };
 
-        // 在单独的线程中处理片
+        // 在单独的线程���处理片
         let result = tokio::task::spawn_blocking(move || {
             let image = match image::load_from_memory(&image_bytes) {
                 Ok(img) => img,
@@ -735,9 +735,8 @@ impl eframe::App for ChatApp {
                         });
                     });
 
-                // 将删除快捷键检查移到这里，在 SidePanel 的上下文中
-                if ui.ui_contains_pointer() && 
-                   ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Backspace)) {
+                // 修改删除快捷键检查的部分
+                if ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Backspace)) {
                     if let Some(current_id) = self.chat_list.current_chat_id.clone() {
                         debug!("开始删除对话: {}", current_id);
                         
@@ -759,7 +758,7 @@ impl eframe::App for ChatApp {
                                         }
                                     }
                                 }
-                                debug!("图片缓存理完成");
+                                debug!("图片缓存清理完成");
                             });
                         } else {
                             debug!("未找到要删除的对话: {}", current_id);
@@ -975,9 +974,9 @@ impl eframe::App for ChatApp {
                                 self.selected_image = None;
                             }
 
-                            // 添加模型选择下拉列表
+                            // 修改模型选择部分，使用图标
                             ui.add_space(10.0);
-                            egui::ComboBox::from_label("模型")
+                            egui::ComboBox::from_id_source("model_selector")
                                 .selected_text(&self.model_name)
                                 .show_ui(ui, |ui| {
                                     for model in &self.available_models {
@@ -987,7 +986,9 @@ impl eframe::App for ChatApp {
                                             }
                                         }
                                     }
-                                });
+                                })
+                                .response
+                                .on_hover_text("选择模型");
                         });
 
                         // 输入框和发送按钮在下方
