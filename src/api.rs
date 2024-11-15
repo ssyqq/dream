@@ -1,8 +1,8 @@
+use futures_util::StreamExt;
+use log::{debug, error};
 use reqwest::Client;
 use serde_json::Value as JsonValue;
 use tokio::sync::mpsc;
-use futures_util::StreamExt;
-use log::{debug, error};
 
 #[derive(Debug)]
 pub enum ApiError {
@@ -42,10 +42,10 @@ pub async fn send_request(
 ) -> Result<(), ApiError> {
     let mut retry_count = 0;
     let mut incomplete_data = String::new();
-    
+
     loop {
         debug!("发送API请求 (重试次数: {})", retry_count);
-        
+
         let response = client
             .post(api_endpoint)
             .header("Authorization", format!("Bearer {}", api_key))
@@ -61,7 +61,10 @@ pub async fn send_request(
                     retry_count += 1;
                     debug!("遇到 429 错误，即将进行第 {} 次重试", retry_count);
                     let _ = tx.send("__CLEAR_ERRORS__".to_string());
-                    let _ = tx.send(format!("遇到频率限制，正在进行第 {} 次重试...", retry_count));
+                    let _ = tx.send(format!(
+                        "遇到频率限制，正在进行第 {} 次重试...",
+                        retry_count
+                    ));
                     continue;
                 }
                 return Err(ApiError::TooManyRequests(()));
@@ -70,17 +73,18 @@ pub async fn send_request(
         }
 
         let mut stream = response.bytes_stream();
-        
+
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(chunk) => {
                     if let Ok(text) = String::from_utf8(chunk.to_vec()) {
                         for line in text.lines() {
                             incomplete_data.push_str(line);
+                            debug!("{}", incomplete_data);
                             if incomplete_data.contains("data: ") {
                                 let index = incomplete_data.find("data: ").unwrap();
                                 let data = &incomplete_data[index + 6..];
-                                
+
                                 if data == "[DONE]" {
                                     debug!("收到结束标记: [DONE]");
                                     let _ = tx.send("__STREAM_DONE__".to_string());
@@ -90,31 +94,47 @@ pub async fn send_request(
                                 match serde_json::from_str::<JsonValue>(data) {
                                     Ok(json) => {
                                         incomplete_data.clear();
-                                        
+
                                         if let Some(error) = json.get("error") {
                                             if retry_enabled && retry_count < max_retries {
                                                 retry_count += 1;
-                                                debug!("遇到API错误，即将进行第 {} 次重试", retry_count);
-                                                let _ = tx.send(format!("遇到API错误，正在进行第 {} 次重试...", retry_count));
+                                                debug!(
+                                                    "遇到API错误，即将进行第 {} 次重试",
+                                                    retry_count
+                                                );
+                                                let _ = tx.send(format!(
+                                                    "遇到API错误，正在进行第 {} 次重试...",
+                                                    retry_count
+                                                ));
                                                 break;
                                             } else {
-                                                let error_msg = if let Some(metadata) = error.get("metadata") {
+                                                let error_msg = if let Some(metadata) =
+                                                    error.get("metadata")
+                                                {
                                                     if let Some(raw) = metadata.get("raw") {
-                                                        format!("API错误 (重试{}次后): {} - 详细信息: {}", 
+                                                        format!("API错误 (重试{}次后): {} - 详细信息: {}",
                                                             retry_count,
                                                             error["message"].as_str().unwrap_or("未知错误"),
                                                             raw.as_str().unwrap_or(""))
                                                     } else {
-                                                        format!("API错误 (重试{}次后): {}", 
+                                                        format!(
+                                                            "API错误 (重试{}次后): {}",
                                                             retry_count,
-                                                            error["message"].as_str().unwrap_or("未知错误"))
+                                                            error["message"]
+                                                                .as_str()
+                                                                .unwrap_or("未知错误")
+                                                        )
                                                     }
                                                 } else {
-                                                    format!("API错误 (重试{}次后): {}", 
+                                                    format!(
+                                                        "API错误 (重试{}次后): {}",
                                                         retry_count,
-                                                        error["message"].as_str().unwrap_or("未知错误"))
+                                                        error["message"]
+                                                            .as_str()
+                                                            .unwrap_or("未知错误")
+                                                    )
                                                 };
-                                                
+
                                                 error!("{}", error_msg);
                                                 let _ = tx.send(error_msg);
                                                 let _ = tx.send("__STREAM_DONE__".to_string());
@@ -122,11 +142,13 @@ pub async fn send_request(
                                             }
                                         }
 
-                                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                                        if let Some(content) =
+                                            json["choices"][0]["delta"]["content"].as_str()
+                                        {
                                             if !content.is_empty() {
                                                 if retry_count > 0 {
                                                     let _ = tx.send("__CLEAR_ERRORS__".to_string());
-                                                    retry_count = 0;  // 重置重试计数
+                                                    retry_count = 0; // 重置重试计数
                                                 }
                                                 let _ = tx.send(content.to_string());
                                             }
@@ -146,14 +168,17 @@ pub async fn send_request(
                     if retry_enabled && retry_count < max_retries {
                         retry_count += 1;
                         debug!("遇到网络错误，即将进行第 {} 次重试", retry_count);
-                        let _ = tx.send(format!("遇到网络错误，正在进行第 {} 次重试...", retry_count));
-                        break;  // 跳出内层循环，返回到外层循环重新发送请求
+                        let _ = tx.send(format!(
+                            "遇到网络错误，正在进行第 {} 次重试...",
+                            retry_count
+                        ));
+                        break; // 跳出内层循环，返回到外层循环重新发送请求
                     }
                     return Err(ApiError::Other(e.into()));
                 }
             }
         }
-        
+
         // 如果没有遇到错误并且正常完成，就退出循环
         if retry_count == 0 {
             break;
@@ -161,6 +186,6 @@ pub async fn send_request(
         // 否则继续重试
         continue;
     }
-    
+
     Ok(())
-} 
+}

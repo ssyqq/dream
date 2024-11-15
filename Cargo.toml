@@ -24,3 +24,4 @@ lazy_static = "1.4"
 egui_commonmark = { version = "0.18.0", features = [
     "better_syntax_highlighting",
     "fetch"] }
+egui_extras = { version = "0.29.1", features = ["all_loaders"] }
