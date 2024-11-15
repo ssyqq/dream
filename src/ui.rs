@@ -734,6 +734,7 @@ impl eframe::App for ChatApp {
 
                         ui.vertical(|ui| {
                             // 顶部区域
+                            ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.small_button("\u{f067}").clicked() {
                                     // nf-fa-plus
@@ -822,7 +823,7 @@ impl eframe::App for ChatApp {
 
                             // 底部齿轮按钮
                             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
-                                ui.add_space(4.0);
+                                ui.add_space(8.0);
                                 ui.horizontal(|ui| {
                                     if ui.small_button("\u{f013}").clicked() {
                                         // nf-fa-cog 设置按钮
