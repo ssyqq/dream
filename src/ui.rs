@@ -600,10 +600,11 @@ impl ChatApp {
                 };
                 
                 // 使用 CommonMarkViewer 渲染完整内容
+                ui.ctx().set_theme(egui::Theme::Light);
                 let viewer = if self.dark_mode {
-                    CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
+                    CommonMarkViewer::new().syntax_theme_dark("fuck")
                 } else {
-                    CommonMarkViewer::new().syntax_theme_light("base16-ocean.light")
+                    CommonMarkViewer::new().syntax_theme_light("fuck")
                 };
                 viewer.show(ui, &mut self.markdown_cache, &content);
             }
@@ -615,9 +616,9 @@ impl ChatApp {
                 ui.add_space(4.0);
                 
                 let viewer = if self.dark_mode {
-                    CommonMarkViewer::new().syntax_theme_dark("base16-ocean.dark")
+                    CommonMarkViewer::new().syntax_theme_dark("fuck")
                 } else {
-                    CommonMarkViewer::new().syntax_theme_light("base16-ocean.light")
+                    CommonMarkViewer::new().syntax_theme_light("fuck")
                 };
                 viewer.show(ui, &mut self.markdown_cache, &msg.content);
             }
@@ -838,18 +839,17 @@ impl eframe::App for ChatApp {
                             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                                 ui.add_space(4.0);
                                 ui.horizontal(|ui| {
-                                    if ui.button("⚙").clicked() {
+                                    if ui.button("\u{f013}").clicked() {  // 设置按钮 (nf-fa-gear)
                                         self.show_settings = !self.show_settings;
                                     }
                                     
-                                    if ui.button("👤").clicked() {  // 添加角色按钮
+                                    if ui.button("\u{f007}").clicked() {  // 角色按钮 (nf-fa-user)
                                         self.show_role_creator = !self.show_role_creator;
                                     }
                                     
-                                    // 添加主题切换按钮
-                                    if ui.button(if self.dark_mode { "☀" } else { "🌙" }).clicked() {
+                                    // 主题切换按钮
+                                    if ui.button(if self.dark_mode { "\u{f185}" } else { "\u{f186}" }).clicked() {  // nf-fa-sun_o / nf-fa-moon_o
                                         self.dark_mode = !self.dark_mode;
-                                        // 保存主题设置
                                         if let Err(e) = self.save_config(frame) {
                                             error!("保存配置失败: {}", e);
                                         }
@@ -1095,13 +1095,12 @@ impl eframe::App for ChatApp {
                     ui.vertical(|ui| {
                         // 图片上传按钮、文件名显示和模型选择放在上方
                         ui.horizontal(|ui| {
-                            if ui.button("📎").clicked() {
+                            if ui.button("\u{f0c6}").clicked() {  // nf-fa-paperclip
                                 if let Some(path) = FileDialog::new()
                                     .add_filter("图片", &["png", "jpg", "jpeg"])
                                     .pick_file() 
                                 {
                                     self.selected_image = Some(path.clone());
-                                    // 立即开始处理图片
                                     let runtime_handle = self.runtime_handle.clone();
                                     self.processing_image = Some(runtime_handle.spawn(async move {
                                         utils::copy_to_cache(&path).await
@@ -1115,7 +1114,7 @@ impl eframe::App for ChatApp {
                                 if let Some(file_name) = path.file_name() {
                                     if let Some(name) = file_name.to_str() {
                                         ui.label(name);
-                                        if ui.button("❌").clicked() {
+                                        if ui.button("\u{f00d}").clicked() {  // nf-fa-times
                                             should_clear_image = true;
                                         }
                                     }
@@ -1148,7 +1147,7 @@ impl eframe::App for ChatApp {
                                 // 发送按钮
                                 if ui.add_sized(
                                     [40.0, 28.0],
-                                    egui::Button::new("➤")
+                                    egui::Button::new("\u{f1d8}")  // nf-fa-send
                                 ).clicked() || (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
                                     && text_edit_response.has_focus())
                                 {
@@ -1172,7 +1171,7 @@ impl eframe::App for ChatApp {
                                 if should_clear {
                                     if ui.add_sized(
                                         [40.0, 28.0],
-                                        egui::Button::new("🗑")
+                                        egui::Button::new("\u{f1f8}")  // nf-fa-trash
                                     ).clicked() {
                                         // 获取当前聊天 ID 的克隆，避免借用冲突
                                         if let Some(id) = self.chat_list.current_chat_id.clone() {
@@ -1298,7 +1297,7 @@ impl eframe::App for ChatApp {
                                                 .await
                                             {
                                                 Ok(response) => {
-                                                    debug!("收到标题生成响应: {:?}", response.status());
+                                                    debug!("收到标���生成响应: {:?}", response.status());
                                                     match response.json::<JsonValue>().await {
                                                         Ok(json) => {
                                                             debug!("标题生成响应JSON: {:?}", json);
