@@ -28,20 +28,28 @@ fn main() -> Result<(), eframe::Error> {
             
             // 添加字体
             #[cfg(target_os = "windows")]
-            {
+            {   
+                // fa solid
+                fonts.font_data.insert(
+                    "fa-solid".to_owned(),
+                    egui::FontData::from_static(include_bytes!(
+                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\fa-solid-900.ttf"
+                    )),
+                );
+
+                // harmonyos font 
+                fonts.font_data.insert(
+                    "harmonyos".to_owned(),
+                    egui::FontData::from_static(include_bytes!(
+                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\HARMONYOS_SANS_SC_REGULAR.TTF"
+                    )),
+                );
+
                 // JetBrains Mono Nerd Font
                 fonts.font_data.insert(
                     "jetbrains".to_owned(),
                     egui::FontData::from_static(include_bytes!(
                         r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\JETBRAINSMONONERDFONT-REGULAR.TTF"
-                    )),
-                );
-
-                // 微软雅黑
-                fonts.font_data.insert(
-                    "msyh".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        r"c:\Windows\Fonts\msyh.ttc"
                     )),
                 );
             }
@@ -52,8 +60,8 @@ fn main() -> Result<(), eframe::Error> {
             fonts.families.insert(
                 FontFamily::Proportional,
                 vec![
-                    "jetbrains".to_owned(),
-                    "msyh".to_owned(),
+                    "harmonyos".to_owned(),
+                    "fa-solid".to_owned(),
                 ],
             );
             
@@ -61,7 +69,7 @@ fn main() -> Result<(), eframe::Error> {
                 FontFamily::Monospace,
                 vec![
                     "jetbrains".to_owned(),
-                    "msyh".to_owned(),
+                    "harmonyos".to_owned(),
                 ],
             );
 

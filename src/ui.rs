@@ -734,7 +734,7 @@ impl eframe::App for ChatApp {
                         ui.vertical(|ui| {
                             // 顶部区域
                             ui.horizontal(|ui| {
-                                if ui.button("➕").clicked() {
+                                if ui.button("+").clicked() {
                                     self.new_chat();
                                 }
                             });
@@ -983,7 +983,7 @@ impl eframe::App for ChatApp {
                                         for (index, model) in self.available_models.iter().enumerate() {
                                             ui.horizontal(|ui| {
                                                 ui.label(model);
-                                                if ui.button("🗑").clicked() {
+                                                if ui.button("\u{f1f8}").clicked() {
                                                     models_to_remove.push(index);
                                                     config_changed = true;
                                                 }
