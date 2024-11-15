@@ -1,4 +1,5 @@
 use crate::utils;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::path::Path;
@@ -80,17 +81,26 @@ pub struct Chat {
     pub messages: Vec<Message>,
     pub has_been_renamed: bool,
     pub config: Option<ChatConfig>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }
 
 impl Chat {
     pub fn new(name: String) -> Self {
+        let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
             name,
             messages: Vec::new(),
             has_been_renamed: false,
             config: None,
+            created_at: now,
+            updated_at: now,
         }
+    }
+
+    pub fn update_time(&mut self) {
+        self.updated_at = Utc::now();
     }
 }
 

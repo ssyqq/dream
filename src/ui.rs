@@ -2,6 +2,7 @@ use crate::api;
 use crate::config;
 use crate::models::{Chat, ChatConfig, ChatHistory, ChatList, Message};
 use crate::utils::{self, ImageError};
+use chrono::Utc;
 use eframe::egui::{self, RichText, ScrollArea, TextEdit};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 use log::{debug, error};
@@ -108,6 +109,8 @@ impl Default for ChatApp {
                 messages: Vec::new(),
                 has_been_renamed: false,
                 config: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
             };
             app.chat_list.chats.insert(0, new_chat);
             app.chat_list.current_chat_id = Some(id);
@@ -186,6 +189,8 @@ impl ChatApp {
                 messages: Vec::new(),
                 has_been_renamed: false,
                 config: None,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
             };
             app.chat_list.chats.insert(0, new_chat);
             app.chat_list.current_chat_id = Some(id);
@@ -225,9 +230,12 @@ impl ChatApp {
 
     async fn save_chat_list_async(&self) -> Result<(), Box<dyn std::error::Error>> {
         debug!("正在保存聊天列表...");
-        let json = serde_json::to_string_pretty(&self.chat_list)?;
+        // 在保存之前先克隆并反转列表，这样保存的顺序就和加载时的顺序一致
+        let mut save_list = self.chat_list.clone();
+        save_list.chats.reverse();
+        let json = serde_json::to_string_pretty(&save_list)?;
         tokio::fs::write("chat_list.json", json).await?;
-        debug!("天列表保存成功");
+        debug!("聊天列表保存成功");
         Ok(())
     }
 
@@ -241,7 +249,7 @@ impl ChatApp {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(content) = tokio::fs::read_to_string("chat_list.json").await {
             *chat_list = serde_json::from_str(&content)?;
-            // 加载后反转列表顺序
+            // 加载后反转列表顺序，使其与显示顺序一致
             chat_list.chats.reverse();
         }
         Ok(())
@@ -264,6 +272,7 @@ impl ChatApp {
         let new_chat = Chat::new(name);
         let id = new_chat.id.clone();
 
+        // 将新对话添加到列表开头，而不是末尾
         self.chat_list.chats.insert(0, new_chat);
         self.chat_list.current_chat_id = Some(id);
         self.chat_history.0.clear();
@@ -633,6 +642,8 @@ impl ChatApp {
                 system_prompt: self.role_prompt_input.clone(),
                 temperature: self.role_temperature,
             }),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         // 将角色添加到列表最前面
@@ -753,12 +764,17 @@ impl eframe::App for ChatApp {
                                     let mut selected_id = None;
 
                                     // 分别获取角色聊天和普通聊天
-                                    let (role_chats, normal_chats): (Vec<_>, Vec<_>) = self
+                                    let (mut role_chats, mut normal_chats): (Vec<_>, Vec<_>) = self
                                         .chat_list
                                         .chats
                                         .iter()
-                                        .rev() // 反转列表以保持显示顺序
                                         .partition(|chat| chat.name.starts_with("🤖"));
+
+                                    // 对普通聊天按更新时间排序（新的在前）
+                                    normal_chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+                                    // 对角色聊天按更新时间排序（新的在前）
+                                    role_chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
                                     // 显示角色聊天
                                     for chat in &role_chats {
@@ -790,8 +806,9 @@ impl eframe::App for ChatApp {
                                         ui.add_space(4.0);
                                     }
 
-                                    // 显示普通聊天
-                                    for chat in &normal_chats {
+                                    // 显示普通聊天（反转顺序）
+                                    for chat in normal_chats.iter().rev() {
+                                        // 这里添加 .rev()
                                         let is_selected = self
                                             .chat_list
                                             .current_chat_id
