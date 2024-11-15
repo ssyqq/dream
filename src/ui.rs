@@ -5,10 +5,8 @@ use crate::api;
 use crate::utils::{self, ImageError};
 use tokio::runtime::Runtime;
 use reqwest::Client;
-use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::sync::mpsc;
-use eframe::egui::TextureHandle;
 use log::{debug, error};
 use uuid::Uuid;
 use serde_json::{json, Value as JsonValue};
@@ -33,7 +31,6 @@ pub struct ChatApp {
     pub retry_enabled: bool,
     pub max_retries: i32,
     pub selected_image: Option<PathBuf>,
-    pub texture_cache: HashMap<String, TextureHandle>,
     pub processing_image: Option<tokio::task::JoinHandle<Result<PathBuf, ImageError>>>,
     pub dark_mode: bool,
     pub available_models: Vec<String>,
@@ -85,7 +82,6 @@ impl Default for ChatApp {
             retry_enabled: config.chat.retry_enabled,
             max_retries: config.chat.max_retries as i32,
             selected_image: None,
-            texture_cache: HashMap::new(),
             processing_image: None,
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
@@ -166,7 +162,6 @@ impl ChatApp {
             retry_enabled: config.chat.retry_enabled,
             max_retries: config.chat.max_retries as i32,
             selected_image: None,
-            texture_cache: HashMap::new(),
             processing_image: None,
             dark_mode: config.chat.dark_mode,
             available_models: config.api.available_models,
@@ -290,7 +285,7 @@ impl ChatApp {
         
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
-            debug!("没有选中的聊，创建新对话");
+            debug!("没有选中的聊天，创建新对话");
             self.new_chat();
         }
         
@@ -626,24 +621,6 @@ impl ChatApp {
         }
     }
 
-    // 添加保存当前配置到聊天的函数
-    fn save_current_config_to_chat(&mut self) {
-        if let Some(current_id) = &self.chat_list.current_chat_id {
-            if let Some(chat) = self.chat_list.chats.iter_mut().find(|c| &c.id == current_id) {
-                chat.config = Some(ChatConfig {
-                    model_name: self.model_name.clone(),
-                    system_prompt: self.system_prompt.clone(),
-                    temperature: self.temperature,
-                });
-                
-                // 保存更新后的聊天列表
-                if let Err(e) = self.save_chat_list() {
-                    error!("保存聊天列表失败: {}", e);
-                }
-            }
-        }
-    }
-
     // 添加创建角色的函数
     fn create_role(&mut self) {
         let new_chat = Chat {
@@ -714,7 +691,6 @@ impl Clone for ChatApp {
             retry_enabled: self.retry_enabled,
             max_retries: self.max_retries,
             selected_image: self.selected_image.clone(),
-            texture_cache: self.texture_cache.clone(),
             processing_image: None,
             dark_mode: self.dark_mode,
             available_models: self.available_models.clone(),

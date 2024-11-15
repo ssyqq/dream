@@ -33,19 +33,18 @@ fn main() -> Result<(), eframe::Error> {
                 fonts.font_data.insert(
                     "jetbrains".to_owned(),
                     egui::FontData::from_static(include_bytes!(
-                        r"D:\Downloads\JetBrainsMonoNerdFont-Regular.ttf"
+                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\JETBRAINSMONONERDFONT-REGULAR.TTF"
                     )),
                 );
-                
+
                 // 微软雅黑
                 fonts.font_data.insert(
                     "msyh".to_owned(),
                     egui::FontData::from_static(include_bytes!(
-                        "C:\\Windows\\Fonts\\msyh.ttc"
+                        r"c:\Windows\Fonts\msyh.ttc"
                     )),
                 );
             }
-
             // 完全覆盖默认字体族设置
             fonts.families.clear();  // 清除所有默认字体族
             
