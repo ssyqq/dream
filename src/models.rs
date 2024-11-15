@@ -1,8 +1,8 @@
-use serde::{Serialize, Deserialize};
-use uuid::Uuid;
+use crate::utils;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
 use std::path::Path;
-use crate::utils;
+use uuid::Uuid;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Message {
@@ -29,7 +29,7 @@ impl Message {
                     }
                 ]))
             }
-            None => Ok(json!(self.content))
+            None => Ok(json!(self.content)),
         }
     }
 
@@ -59,7 +59,8 @@ impl ChatHistory {
     }
 
     pub fn last_message_is_assistant(&self) -> bool {
-        self.0.last()
+        self.0
+            .last()
             .map(|msg| msg.role == "assistant")
             .unwrap_or(false)
     }
@@ -106,4 +107,4 @@ impl Default for ChatList {
             current_chat_id: None,
         }
     }
-} 
+}

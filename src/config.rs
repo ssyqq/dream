@@ -1,4 +1,4 @@
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use std::error::Error as StdError;
 use tokio::fs;
 
@@ -105,4 +105,4 @@ pub async fn save_config(config: &Config) -> Result<(), ConfigError> {
     let toml_string = toml::to_string_pretty(config)?;
     fs::write("dream.toml", toml_string).await?;
     Ok(())
-} 
+}
