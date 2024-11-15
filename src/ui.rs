@@ -1,5 +1,5 @@
 use eframe::egui::{self, RichText, ScrollArea, TextEdit };
-use crate::models::{ChatList, Message, Chat, ChatHistory};
+use crate::models::{ChatList, Message, Chat, ChatHistory, ChatConfig};
 use crate::config;
 use crate::api;
 use crate::utils::{self, ImageError};
@@ -40,6 +40,12 @@ pub struct ChatApp {
     pub input_focus: bool,
     pub markdown_cache: CommonMarkCache,
     pub new_model_input: String,
+    pub show_role_creator: bool,
+    pub role_name_input: String,
+    pub role_prompt_input: String,
+    pub role_model_name: String,
+    pub role_temperature: f32,
+    pub clear_chat_mode: bool,
 }
 
 impl Default for ChatApp {
@@ -86,6 +92,12 @@ impl Default for ChatApp {
             input_focus: true,
             markdown_cache: CommonMarkCache::default(),
             new_model_input: String::new(),
+            show_role_creator: false,
+            role_name_input: String::new(),
+            role_prompt_input: String::new(),
+            role_model_name: "gpt-4".to_string(),
+            role_temperature: 0.7,
+            clear_chat_mode: true,
         };
         
         // 先尝试加载聊天列表
@@ -101,6 +113,7 @@ impl Default for ChatApp {
                 name: "新对话".to_string(),
                 messages: Vec::new(),
                 has_been_renamed: false,
+                config: None,
             };
             app.chat_list.chats.insert(0, new_chat);
             app.chat_list.current_chat_id = Some(id);
@@ -116,7 +129,7 @@ impl Default for ChatApp {
 
 impl ChatApp {
     pub fn new(runtime: Runtime) -> Self {
-        debug!("创建新的 ChatApp 实例");
+        debug!("创建新的 ChatApp 实");
         let handle = runtime.handle().clone();
         
         // 修复 timeout 的类型问题
@@ -160,6 +173,12 @@ impl ChatApp {
             input_focus: true,
             markdown_cache: CommonMarkCache::default(),
             new_model_input: String::new(),
+            show_role_creator: false,
+            role_name_input: String::new(),
+            role_prompt_input: String::new(),
+            role_model_name: "gpt-4".to_string(),
+            role_temperature: 0.7,
+            clear_chat_mode: true,
         };
         
         // 先尝试加载聊天列表
@@ -175,6 +194,7 @@ impl ChatApp {
                 name: "新对话".to_string(),
                 messages: Vec::new(),
                 has_been_renamed: false,
+                config: None,
             };
             app.chat_list.chats.insert(0, new_chat);
             app.chat_list.current_chat_id = Some(id);
@@ -249,7 +269,7 @@ impl ChatApp {
         let chat_count = self.chat_list.chats.len();
         let name = format!("新对话 {}", chat_count + 1);
         
-        // 使用 new 方法创建新对话
+        // 使用 new 方法创建新对话，它会自动设置 config 为 None
         let new_chat = Chat::new(name);
         let id = new_chat.id.clone();
         
@@ -270,10 +290,41 @@ impl ChatApp {
         
         // 如果没有选中的聊天，创建一个新的
         if self.chat_list.current_chat_id.is_none() {
-            debug!("没有选中的聊天，创建新对话");
+            debug!("没有选中的聊，创建新对话");
             self.new_chat();
         }
         
+        // 获取当前聊天的配置
+        let (current_model, current_prompt, current_temp) = if let Some(current_id) = &self.chat_list.current_chat_id {
+            if let Some(chat) = self.chat_list.chats.iter().find(|c| &c.id == current_id) {
+                if let Some(config) = &chat.config {
+                    (
+                        config.model_name.clone(),
+                        config.system_prompt.clone(),
+                        config.temperature,
+                    )
+                } else {
+                    (
+                        self.model_name.clone(),
+                        self.system_prompt.clone(),
+                        self.temperature,
+                    )
+                }
+            } else {
+                (
+                    self.model_name.clone(),
+                    self.system_prompt.clone(),
+                    self.temperature,
+                )
+            }
+        } else {
+            (
+                self.model_name.clone(),
+                self.system_prompt.clone(),
+                self.temperature,
+            )
+        };
+
         // 处理图片
         let processed_image = if let Some(processing) = self.processing_image.take() {
             match self.runtime_handle.block_on(async {
@@ -351,9 +402,9 @@ impl ChatApp {
         self.runtime.spawn(async move {
             // 先处理图片（如果有）
             let cached_image_path = if let Some(path) = image_path {
-                // 如果已经有���理的图片路径，直接使用它
+                // 如果已经有理的图片路径，直接使用它
                 if let Some(ref processed_path) = new_message.image_path {
-                    debug!("使用已处理的缓存图片: {:?}", processed_path);
+                    debug!("使用已处理的缓图片: {:?}", processed_path);
                     Some(PathBuf::from(processed_path))
                 } else {
                     // 否则才进行处理
@@ -376,12 +427,12 @@ impl ChatApp {
             if new_message.image_path.is_none() {
                 if let Some(path) = cached_image_path.clone() {
                     new_message.image_path = Some(path.to_string_lossy().to_string());
-                    // 发送消息更通知
+                    // 送消息更通
                     let _ = tx_clone.send(format!("__UPDATE_MESSAGE_IMAGE__:{}", path.to_string_lossy()));
                 }
             }
 
-            // 构建消息数组
+            // 构建消息数组时使用当前配置
             let mut messages = vec![
                 json!({
                     "role": "system",
@@ -407,11 +458,11 @@ impl ChatApp {
                 }));
             }
 
-            // 发送请求
+            // 发送请求时使用当前配置
             let payload = json!({
-                "model": model_name,
+                "model": current_model,
                 "messages": messages,
-                "temperature": temperature,
+                "temperature": current_temp,
                 "stream": true
             });
 
@@ -447,7 +498,7 @@ impl ChatApp {
                     "messages": vec![
                         json!({
                             "role": "system",
-                            "content": "请根据用户的输入和AI的回复生成一个简短的对话标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。标题应该概括对话的主要内容或主题。"
+                            "content": "请根据用户的输入AI的回复生成一个简短的对话标题(不超过20个字),直接返回标题即可,不需要任何解释或额外的标点符号。标题应该概括对话的主要内容或主题。"
                         }),
                         json!({
                             "role": "user",
@@ -513,6 +564,10 @@ impl ChatApp {
     fn handle_message_selection(&mut self, messages: Vec<Message>) {
         debug!("选择消息: {} 条", messages.len());
         self.chat_history.0 = messages;
+        
+        // 不再在这里修改全局配置
+        // 只需要加载消息历史即可
+        // 发送消息时会自动使用角色的配置
     }
 
     fn handle_response(&mut self, response: String) {
@@ -569,6 +624,73 @@ impl ChatApp {
             _ => {}
         }
     }
+
+    // 添加保存当前配置到聊天的函数
+    fn save_current_config_to_chat(&mut self) {
+        if let Some(current_id) = &self.chat_list.current_chat_id {
+            if let Some(chat) = self.chat_list.chats.iter_mut().find(|c| &c.id == current_id) {
+                chat.config = Some(ChatConfig {
+                    model_name: self.model_name.clone(),
+                    system_prompt: self.system_prompt.clone(),
+                    temperature: self.temperature,
+                });
+                
+                // 保存更新后的聊天列表
+                if let Err(e) = self.save_chat_list() {
+                    error!("保存聊天列表失败: {}", e);
+                }
+            }
+        }
+    }
+
+    // 添加创建角色的函数
+    fn create_role(&mut self) {
+        let new_chat = Chat {
+            id: Uuid::new_v4().to_string(),
+            name: format!("🤖 {}", self.role_name_input.trim()),
+            messages: Vec::new(),
+            has_been_renamed: true,  // 角色名称不需要自动生成
+            config: Some(ChatConfig {
+                model_name: self.role_model_name.clone(),
+                system_prompt: self.role_prompt_input.clone(),
+                temperature: self.role_temperature,
+            }),
+        };
+
+        // 将角色添加到列表最前面
+        self.chat_list.chats.insert(0, new_chat);
+        
+        // 保存聊天列表
+        if let Err(e) = self.save_chat_list() {
+            error!("保存聊天列表失败: {}", e);
+        }
+
+        // 清空输入
+        self.role_name_input.clear();
+        self.role_prompt_input.clear();
+        self.role_temperature = 0.7;
+        self.show_role_creator = false;
+    }
+
+    // 修改清空聊天的处理逻辑
+    fn clear_chat(&mut self, chat_id: &str) {
+        if self.clear_chat_mode {
+            // 完全清空模式：清空内存和保存的记录
+            self.chat_history.0.clear();
+            if let Some(chat) = self.chat_list.chats.iter_mut().find(|c| &c.id == chat_id) {
+                chat.messages.clear();
+                // 保存更新后的聊天列表
+                if let Err(e) = self.save_chat_list() {
+                    error!("保存聊天列表失败: {}", e);
+                }
+            }
+        } else {
+            // 仅清空内存模式：添加分隔线消息
+            self.chat_history.add_message(Message::new_assistant(
+                "--------------------------- 历史记录分割线 ---------------------------".to_string()
+            ));
+        }
+    }
 }
 
 impl Clone for ChatApp {
@@ -598,6 +720,12 @@ impl Clone for ChatApp {
             input_focus: self.input_focus,
             markdown_cache: CommonMarkCache::default(),
             new_model_input: self.new_model_input.clone(),
+            show_role_creator: self.show_role_creator,
+            role_name_input: self.role_name_input.clone(),
+            role_prompt_input: self.role_prompt_input.clone(),
+            role_model_name: self.role_model_name.clone(),
+            role_temperature: self.role_temperature,
+            clear_chat_mode: self.clear_chat_mode,
         }
     }
 }
@@ -643,8 +771,42 @@ impl eframe::App for ChatApp {
                                     let mut selected_messages = None;
                                     let mut selected_id = None;
                                     
-                                    // 创建一个反迭代器来倒序显聊天列表
-                                    for chat in self.chat_list.chats.iter().rev() {
+                                    // 分别获取角色聊天和普通聊天
+                                    let (role_chats, normal_chats): (Vec<_>, Vec<_>) = self.chat_list.chats
+                                        .iter()
+                                        .rev()  // 反转列表以保持显示顺序
+                                        .partition(|chat| chat.name.starts_with("🤖"));
+
+                                    // 显示角色聊天
+                                    for chat in &role_chats {
+                                        let is_selected = self.chat_list.current_chat_id
+                                            .as_ref()
+                                            .map_or(false, |id| id == &chat.id);
+                                        
+                                        ui.horizontal(|ui| {
+                                            ui.set_min_height(24.0);
+                                            
+                                            let response = ui.selectable_label(
+                                                is_selected,
+                                                RichText::new(&chat.name)
+                                            );
+                                            
+                                            if response.clicked() {
+                                                selected_id = Some(chat.id.clone());
+                                                selected_messages = Some(chat.messages.clone());
+                                            }
+                                        });
+                                    }
+
+                                    // 添加分割线
+                                    if !role_chats.is_empty() && !normal_chats.is_empty() {
+                                        ui.add_space(4.0);
+                                        ui.separator();
+                                        ui.add_space(4.0);
+                                    }
+
+                                    // 显示普通聊天
+                                    for chat in &normal_chats {
                                         let is_selected = self.chat_list.current_chat_id
                                             .as_ref()
                                             .map_or(false, |id| id == &chat.id);
@@ -680,7 +842,11 @@ impl eframe::App for ChatApp {
                                         self.show_settings = !self.show_settings;
                                     }
                                     
-                                    // 添题切钮
+                                    if ui.button("👤").clicked() {  // 添加角色按钮
+                                        self.show_role_creator = !self.show_role_creator;
+                                    }
+                                    
+                                    // 添加主题切换按钮
                                     if ui.button(if self.dark_mode { "☀" } else { "🌙" }).clicked() {
                                         self.dark_mode = !self.dark_mode;
                                         // 保存主题设置
@@ -704,7 +870,7 @@ impl eframe::App for ChatApp {
                             // 删除所有相关的缓存图片
                             let messages = chat.messages.clone();
                             let runtime_handle = self.runtime_handle.clone();
-                            debug!("开始清理对话���的图片缓存，消数���: {}", messages.len());
+                            debug!("开始清理对话的图片缓存，消数: {}", messages.len());
                             
                             runtime_handle.spawn(async move {
                                 for (index, msg) in messages.iter().enumerate() {
@@ -788,9 +954,18 @@ impl eframe::App for ChatApp {
                                     }
                                     ui.end_row();
 
-                                    // 模型名称设置
-                                    ui.label("模型名称:");
-                                    ui.label(&self.model_name);  // 将输入框改为只读标签
+                                    // 默认模型设置 - 改为下拉选择
+                                    ui.label("默认模型:");
+                                    egui::ComboBox::from_id_salt("default_model_selector")
+                                        .selected_text(&self.model_name)
+                                        .width(ui.available_width() - 60.0)
+                                        .show_ui(ui, |ui| {
+                                            for model in &self.available_models {
+                                                if ui.selectable_value(&mut self.model_name, model.clone(), model).changed() {
+                                                    config_changed = true;
+                                                }
+                                            }
+                                        });
                                     ui.end_row();
 
                                     // System Prompt 设置
@@ -866,6 +1041,18 @@ impl eframe::App for ChatApp {
                                         });
                                     });
                                     ui.end_row();
+
+                                    // 添加聊天记录清空模式设置
+                                    ui.label("清空聊天模式:");
+                                    ui.horizontal(|ui| {
+                                        if ui.radio(self.clear_chat_mode, "完全清空").clicked() {
+                                            self.clear_chat_mode = true;
+                                        }
+                                        if ui.radio(!self.clear_chat_mode, "仅清空内存").clicked() {
+                                            self.clear_chat_mode = false;
+                                        }
+                                    });
+                                    ui.end_row();
                                 });
                             
                             if config_changed {
@@ -937,29 +1124,13 @@ impl eframe::App for ChatApp {
                             if should_clear_image {
                                 self.selected_image = None;
                             }
-
-                            // 修改模型选择部分，使用图标
-                            ui.add_space(10.0);
-                            egui::ComboBox::from_id_salt("model_selector")
-                                .selected_text(&self.model_name)
-                                .show_ui(ui, |ui| {
-                                    for model in &self.available_models {
-                                        if ui.selectable_value(&mut self.model_name, model.clone(), model).changed() {
-                                            if let Err(e) = self.save_config(frame) {
-                                                error!("保存配置失败: {}", e);
-                                            }
-                                        }
-                                    }
-                                })
-                                .response
-                                .on_hover_text("选择模型");
                         });
 
                         // 输入框和发送按钮在下方
                         ui.horizontal(|ui| {
                             let text_edit = TextEdit::multiline(&mut self.input_text)
                                 .desired_rows(3)
-                                .min_size(egui::vec2(available_width - 50.0, 60.0))
+                                .min_size(egui::vec2(available_width - 100.0, 60.0))  // 减小宽度以容纳两个按钮
                                 .id("chat_input".into());
                             
                             let text_edit_response = ui.add(text_edit);
@@ -973,17 +1144,43 @@ impl eframe::App for ChatApp {
                                 self.input_focus = false;
                             }
                             
-                            if ui.add_sized(
-                                [40.0, 60.0],
-                                egui::Button::new("➤")
-                            ).clicked() || (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
-                                && text_edit_response.has_focus())
-                            {
-                                if !self.input_text.is_empty() || self.selected_image.is_some() {
-                                    self.send_message();
-                                    self.input_focus = true;  // 发送消息后重新设置焦点标志
+                            ui.vertical(|ui| {
+                                // 发送按钮
+                                if ui.add_sized(
+                                    [40.0, 28.0],
+                                    egui::Button::new("➤")
+                                ).clicked() || (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
+                                    && text_edit_response.has_focus())
+                                {
+                                    if !self.input_text.is_empty() || self.selected_image.is_some() {
+                                        self.send_message();
+                                        self.input_focus = true;
+                                    }
                                 }
-                            }
+
+                                // 只在角色聊天中显示清空按钮
+                                let should_clear = if let Some(current_id) = &self.chat_list.current_chat_id {
+                                    if let Some(chat) = self.chat_list.chats.iter().find(|c| &c.id == current_id) {
+                                        chat.name.starts_with("🤖")
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                };
+
+                                if should_clear {
+                                    if ui.add_sized(
+                                        [40.0, 28.0],
+                                        egui::Button::new("🗑")
+                                    ).clicked() {
+                                        // 获取当前聊天 ID 的克隆，避免借用冲突
+                                        if let Some(id) = self.chat_list.current_chat_id.clone() {
+                                            self.clear_chat(&id);
+                                        }
+                                    }
+                                }
+                            });
                         });
                     });
                 });
@@ -1147,5 +1344,41 @@ impl eframe::App for ChatApp {
                 }
             }
         });
+
+        // 添加角色创建窗口
+        if self.show_role_creator {
+            egui::Window::new("创建角色")
+                .collapsible(false)
+                .anchor(egui::Align2::CENTER_CENTER, egui::vec2(0.0, 0.0))
+                .show(ctx, |ui| {
+                    ui.vertical(|ui| {
+                        ui.label("角色名称:");
+                        ui.text_edit_singleline(&mut self.role_name_input);
+                        
+                        ui.add_space(8.0);
+                        ui.label("选择模型:");
+                        egui::ComboBox::from_id_salt("role_model_selector")
+                            .selected_text(&self.role_model_name)
+                            .show_ui(ui, |ui| {
+                                for model in &self.available_models {
+                                    ui.selectable_value(&mut self.role_model_name, model.clone(), model);
+                                }
+                            });
+                        
+                        ui.add_space(8.0);
+                        ui.label("系统提示词:");
+                        ui.text_edit_multiline(&mut self.role_prompt_input);
+                        
+                        ui.add_space(8.0);
+                        ui.label("Temperature:");
+                        ui.add(egui::Slider::new(&mut self.role_temperature, 0.0..=2.0).step_by(0.1));
+                        
+                        ui.add_space(16.0);
+                        if ui.button("创建角色").clicked() && !self.role_name_input.trim().is_empty() {
+                            self.create_role();
+                        }
+                    });
+                });
+        }
     }
 } 

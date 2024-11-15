@@ -66,11 +66,19 @@ impl ChatHistory {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub struct ChatConfig {
+    pub model_name: String,
+    pub system_prompt: String,
+    pub temperature: f32,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub struct Chat {
     pub id: String,
     pub name: String,
     pub messages: Vec<Message>,
     pub has_been_renamed: bool,
+    pub config: Option<ChatConfig>,
 }
 
 impl Chat {
@@ -80,6 +88,7 @@ impl Chat {
             name,
             messages: Vec::new(),
             has_been_renamed: false,
+            config: None,
         }
     }
 }
