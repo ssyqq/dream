@@ -294,6 +294,18 @@ impl ChatApp {
             self.new_chat();
         }
 
+        // 更新当前聊天的时间戳
+        if let Some(current_id) = &self.chat_list.current_chat_id {
+            if let Some(chat) = self
+                .chat_list
+                .chats
+                .iter_mut()
+                .find(|c| &c.id == current_id)
+            {
+                chat.update_time();
+            }
+        }
+
         // 获取当前聊天的配置
         let (current_model, current_prompt, current_temp) =
             if let Some(current_id) = &self.chat_list.current_chat_id {
@@ -771,7 +783,7 @@ impl eframe::App for ChatApp {
                                         .partition(|chat| chat.name.starts_with("🤖"));
 
                                     // 对普通聊天按更新时间排序（新的在前）
-                                    normal_chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                                    normal_chats.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
 
                                     // 对角色聊天按更新时间排序（新的在前）
                                     role_chats.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
