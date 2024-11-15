@@ -735,7 +735,8 @@ impl eframe::App for ChatApp {
                         ui.vertical(|ui| {
                             // 顶部区域
                             ui.horizontal(|ui| {
-                                if ui.small_button("\u{f067}").clicked() { // nf-fa-plus
+                                if ui.small_button("\u{f067}").clicked() {
+                                    // nf-fa-plus
                                     self.new_chat();
                                 }
                             });
@@ -745,6 +746,7 @@ impl eframe::App for ChatApp {
                             // 聊天列表区域 - 设置为充满剩余空间
                             ScrollArea::vertical()
                                 .auto_shrink([false; 2])
+                                .drag_to_scroll(false)
                                 .show(ui, |ui| {
                                     let mut selected_messages = None;
                                     let mut selected_id = None;
@@ -822,27 +824,32 @@ impl eframe::App for ChatApp {
                             ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
                                 ui.add_space(4.0);
                                 ui.horizontal(|ui| {
-                                    if ui.small_button("\u{f013}").clicked() { // nf-fa-cog 设置按钮
+                                    if ui.small_button("\u{f013}").clicked() {
+                                        // nf-fa-cog 设置按钮
                                         self.show_settings = !self.show_settings;
                                     }
 
-                                    if ui.small_button("\u{f007}").clicked() { // nf-fa-user 角色按钮
+                                    if ui.small_button("\u{f007}").clicked() {
+                                        // nf-fa-user 角色按钮
                                         self.show_role_creator = !self.show_role_creator;
                                     }
 
                                     // 主题切换按钮
-                                    if ui.small_button(if self.dark_mode {
-                                        "\u{f185}" // nf-fa-sun_o
-                                    } else {
-                                        "\u{f186}" // nf-fa-moon_o
-                                    }).clicked() {
+                                    if ui
+                                        .small_button(if self.dark_mode {
+                                            "\u{f185}" // nf-fa-sun_o
+                                        } else {
+                                            "\u{f186}" // nf-fa-moon_o
+                                        })
+                                        .clicked()
+                                    {
                                         self.dark_mode = !self.dark_mode;
                                         if let Err(e) = self.save_config(frame) {
                                             error!("保存配置失败: {}", e);
                                         }
                                     }
                                 });
-                                ui.separator();  // 在按钮上方添加分割线
+                                ui.separator(); // 在按钮上方添加分割线
                             });
                         });
                     });
