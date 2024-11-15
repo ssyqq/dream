@@ -70,6 +70,12 @@ fn main() -> Result<(), eframe::Error> {
             {
                 fonts.families.clear(); // 清除所有默认字体族
 
+                // 添加 fa solid 字体
+                fonts.font_data.insert(
+                    "fa-solid".to_owned(),
+                    egui::FontData::from_static(include_bytes!("/Users/ls/Downloads/fontawesome-free-6.6.0-desktop/otfs/Font Awesome 6 Free-Solid-900.otf")),
+                );
+
                 // 添加 PingFang SC 字体（macOS 系统字体）
                 fonts.font_data.insert(
                     "PingFang-SC".to_owned(),
@@ -88,12 +94,20 @@ fn main() -> Result<(), eframe::Error> {
 
                 fonts.families.insert(
                     FontFamily::Proportional,
-                    vec!["jetbrains".to_owned(), "PingFang-SC".to_owned()],
+                    vec![
+                        "jetbrains".to_owned(),
+                        "fa-solid".to_owned(),
+                        "PingFang-SC".to_owned(),
+                    ],
                 );
 
                 fonts.families.insert(
                     FontFamily::Monospace,
-                    vec!["jetbrains".to_owned(), "PingFang-SC".to_owned()],
+                    vec![
+                        "jetbrains".to_owned(),
+                        "fa-solid".to_owned(),
+                        "PingFang-SC".to_owned(),
+                    ],
                 );
             }
             cc.egui_ctx.set_fonts(fonts);

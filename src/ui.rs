@@ -646,9 +646,9 @@ impl ChatApp {
     fn create_role(&mut self) {
         let new_chat = Chat {
             id: Uuid::new_v4().to_string(),
-            name: format!("🤖 {}", self.role_name_input.trim()),
+            name: format!("\u{f544} {}", self.role_name_input.trim()),
             messages: Vec::new(),
-            has_been_renamed: true, // 角色名称不需要自动生成
+            has_been_renamed: true,
             config: Some(ChatConfig {
                 model_name: self.role_model_name.clone(),
                 system_prompt: self.role_prompt_input.clone(),
@@ -760,7 +760,6 @@ impl eframe::App for ChatApp {
                             ui.add_space(5.0);
                             ui.horizontal(|ui| {
                                 if ui.small_button("\u{f067}").clicked() {
-                                    // nf-fa-plus
                                     self.new_chat();
                                 }
                             });
@@ -780,7 +779,7 @@ impl eframe::App for ChatApp {
                                         .chat_list
                                         .chats
                                         .iter()
-                                        .partition(|chat| chat.name.starts_with("🤖"));
+                                        .partition(|chat| chat.name.starts_with("\u{f544}"));
 
                                     // 对普通聊天按更新时间排序（新的在前）
                                     normal_chats.sort_by(|a, b| a.updated_at.cmp(&b.updated_at));
@@ -1109,7 +1108,7 @@ impl eframe::App for ChatApp {
                     .show(ui, |ui| {
                         let messages = self.chat_history.0.clone();
                         for (i, msg) in messages.iter().enumerate() {
-                            if i > 0 {
+                            if i > 0 && i % 2 == 0 {
                                 ui.add_space(4.0);
                                 ui.separator();
                                 ui.add_space(4.0);
@@ -1122,11 +1121,14 @@ impl eframe::App for ChatApp {
                 ui.horizontal(|ui| {
                     let available_width = ui.available_width();
 
-                    // 修改入区域的布局
+                    // 修改输入区域的布局
                     ui.vertical(|ui| {
+                        // 添加分割线
+                        ui.separator();
+
                         // 图片上传按钮、文件名显示和模型选择放在上方
                         ui.horizontal(|ui| {
-                            if ui.small_button("\u{f0c6}").clicked() {  // nf-fa-paperclip 替换原来的附件图标
+                            if ui.small_button("\u{f0c6}").clicked() {
                                 if let Some(path) = FileDialog::new()
                                     .add_filter("图片", &["png", "jpg", "jpeg"])
                                     .pick_file()
@@ -1145,7 +1147,7 @@ impl eframe::App for ChatApp {
                                 if let Some(file_name) = path.file_name() {
                                     if let Some(name) = file_name.to_str() {
                                         ui.label(name);
-                                        if ui.small_button("\u{f00d}").clicked() {  // nf-fa-times 替换原来的删除图标
+                                        if ui.small_button("\u{f00d}").clicked() {
                                             should_clear_image = true;
                                         }
                                     }
@@ -1156,56 +1158,60 @@ impl eframe::App for ChatApp {
                             }
                         });
 
-                        // 输入框和发送按钮在下方
-                        ui.horizontal(|ui| {
-                            let text_edit = TextEdit::multiline(&mut self.input_text)
-                                .desired_rows(3)
-                                .min_size(egui::vec2(available_width - 100.0, 60.0))  // 减小宽度以容纳两个按钮
-                                .id("chat_input".into());
+                        // 将输入框放在 ScrollArea 中
+                        ScrollArea::vertical()
+                            .max_height(100.0)  // 设置最大高度
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    let text_edit = TextEdit::multiline(&mut self.input_text)
+                                        .desired_rows(4)
+                                        .frame(false);
 
-                            let text_edit_response = ui.add(text_edit);
+                                    let text_edit_response = ui.add(
+                                        // egui::vec2(available_width, 10.0),
+                                        text_edit
+                                    );
 
-                            // 如果需要聚焦且输入框还没有焦点
-                            if self.input_focus && !text_edit_response.has_focus() {
-                                text_edit_response.request_focus();
-                            }
-                            // 一旦获得焦点，将 input_focus 设置为 false
-                            if text_edit_response.has_focus() {
-                                self.input_focus = false;
-                            }
-
-                            ui.vertical(|ui| {
-                                // 发送按钮
-                                if ui.button("\u{f1d8}").clicked() || (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
-                                    && text_edit_response.has_focus())
-                                {
-                                    if !self.input_text.is_empty() || self.selected_image.is_some() {
-                                        self.send_message();
-                                        self.input_focus = true;
+                                    // 如果需要聚焦且输入框还没有焦点
+                                    if self.input_focus && !text_edit_response.has_focus() {
+                                        text_edit_response.request_focus();
                                     }
-                                }
-
-                                // 只在角色聊天中显示清空按钮
-                                let should_clear = if let Some(current_id) = &self.chat_list.current_chat_id {
-                                    if let Some(chat) = self.chat_list.chats.iter().find(|c| &c.id == current_id) {
-                                        chat.name.starts_with("🤖")
-                                    } else {
-                                        false
+                                    // 一旦获得焦点，将 input_focus 设置为 false
+                                    if text_edit_response.has_focus() {
+                                        self.input_focus = false;
                                     }
-                                } else {
-                                    false
-                                };
 
-                                if should_clear {
-                                    if ui.button("\u{f1f8}").clicked() {
-                                        // 获取当前聊天 ID 的克隆，避免借用冲突
-                                        if let Some(id) = self.chat_list.current_chat_id.clone() {
-                                            self.clear_chat(&id);
+                                    ui.vertical(|ui| {
+                                        // 只在角色聊天中显示清空按钮
+                                        let should_clear = if let Some(current_id) = &self.chat_list.current_chat_id {
+                                            if let Some(chat) = self.chat_list.chats.iter().find(|c| &c.id == current_id) {
+                                                chat.name.starts_with("\u{f544}")
+                                            } else {
+                                                false
+                                            }
+                                        } else {
+                                            false
+                                        };
+
+                                        if should_clear {
+                                            if ui.button("\u{f51a}").clicked() {
+                                                if let Some(id) = self.chat_list.current_chat_id.clone() {
+                                                    self.clear_chat(&id);
+                                                }
+                                            }
                                         }
-                                    }
-                                }
+
+                                        // 检查 Enter 键发送
+                                        if (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
+                                            && text_edit_response.has_focus())
+                                            && (!self.input_text.is_empty() || self.selected_image.is_some())
+                                        {
+                                            self.send_message();
+                                            self.input_focus = true;
+                                        }
+                                    });
+                                });
                             });
-                        });
                     });
                 });
             });
