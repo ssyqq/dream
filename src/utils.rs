@@ -73,20 +73,6 @@ pub async fn copy_to_cache(source_path: &Path) -> Result<PathBuf, ImageError> {
 
         // 计时：转换格式和压缩
         let convert_start = Instant::now();
-
-        // 获取原始尺寸
-        let (width, height) = img.dimensions();
-
-        // 先缩放，再转换格式，减少处理的数据量
-        let img = if width > 800 || height > 800 {
-            let scale = 800.0 / width.max(height) as f32;
-            let new_width = (width as f32 * scale) as u32;
-            let new_height = (height as f32 * scale) as u32;
-            img.resize(new_width, new_height, image::imageops::FilterType::Nearest)
-        } else {
-            img
-        };
-
         // 转换为RGB8
         let rgb_img = img.into_rgb8();
         debug!("转换RGB格式耗时: {:?}", convert_start.elapsed());
