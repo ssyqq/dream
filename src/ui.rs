@@ -1125,7 +1125,7 @@ impl eframe::App for ChatApp {
                     });
 
                 // 修改分隔条的部分
-                let separator_height = 0.0;
+                let separator_height = 0.1;
                 let full_width = ui.available_width() + 20.0;
                 let (rect, response) = ui.allocate_exact_size(
                     egui::vec2(full_width, separator_height),
@@ -1139,20 +1139,24 @@ impl eframe::App for ChatApp {
                         egui::pos2(rect.min.x - 10.0, rect.min.y),
                         egui::vec2(full_width, separator_height)
                     );
-                    
-                    // 基础线条
-                    let base_stroke = ui.style().visuals.widgets.noninteractive.bg_stroke;
-                    ui.painter().rect(
-                        adjusted_rect,
-                        0.0,
-                        ui.style().visuals.window_fill(),
-                        base_stroke,
-                    );
 
                     // hover 效果
                     if response.hovered() || response.dragged() {
-                        let hover_stroke = ui.style().visuals.selection.stroke;
-                        let hover_stroke = egui::Stroke::new(2.0, hover_stroke.color);
+                        // hover 效果 - 根据主题切换颜色
+                        let hover_color = if self.dark_mode {
+                            egui::Color32::WHITE  // 暗色模式下使用白色
+                        } else {
+                            egui::Color32::BLACK  // 亮色模式下使用黑色
+                        };
+
+                        // 根据拖动状态决定线条粗细
+                        let line_width = if response.dragged() {
+                            2.2  // 拖动时线条更粗
+                        } else {
+                            1.5  // 普通悬停时保持原有粗细
+                        };
+
+                        let hover_stroke = egui::Stroke::new(line_width, hover_color);
                         ui.painter().line_segment(
                             [
                                 egui::pos2(rect.left() - 10.0, rect.center().y),
@@ -1160,9 +1164,17 @@ impl eframe::App for ChatApp {
                             ],
                             hover_stroke,
                         );
+                    } else { 
+                        // 基础线条
+                        let base_stroke = ui.style().visuals.widgets.noninteractive.bg_stroke;
+                        ui.painter().rect(
+                            adjusted_rect,
+                            0.0,
+                            ui.style().visuals.window_fill(),
+                            base_stroke,
+                        );
                     }
                 }
-
                 // 处理拖动逻辑
                 if response.hovered() {
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeVertical);
@@ -1173,15 +1185,15 @@ impl eframe::App for ChatApp {
                 self.input_height = (self.input_height - delta.y)
                     .clamp(80.0, total_height * 0.8);
 
-                // 添加视觉反馈
-                if response.hovered() || response.dragged() {
-                    let stroke = ui.style().visuals.selection.stroke;
-                    let stroke = egui::Stroke::new(2.0, stroke.color);  // 创建新的 Stroke 来设置宽度
-                    ui.painter().line_segment(
-                        [rect.left_center(), rect.right_center()],
-                        stroke,
-                    );
-                }
+                // // 添加视觉反馈
+                // if response.hovered() || response.dragged() {
+                //     let stroke = ui.style().visuals.selection.stroke;
+                //     let stroke = egui::Stroke::new(2.0, stroke.color);  // 创建新的 Stroke 来设置宽度
+                //     ui.painter().line_segment(
+                //         [rect.left_center(), rect.right_center()],
+                //         stroke,
+                //     );
+                // }
 
                 // 输入区域
                 ui.horizontal(|ui| {
