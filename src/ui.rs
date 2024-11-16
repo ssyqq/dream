@@ -44,6 +44,8 @@ pub struct ChatApp {
     pub role_model_name: String,
     pub role_temperature: f32,
     pub clear_chat_mode: bool,
+    pub input_height: f32,
+    pub dragging_input: bool,
 }
 
 impl Default for ChatApp {
@@ -93,6 +95,8 @@ impl Default for ChatApp {
             role_model_name: "gpt-4".to_string(),
             role_temperature: 0.7,
             clear_chat_mode: true,
+            input_height: 120.0,
+            dragging_input: false,
         };
 
         // 先尝试加载聊天列表
@@ -173,6 +177,8 @@ impl ChatApp {
             role_model_name: "gpt-4".to_string(),
             role_temperature: 0.7,
             clear_chat_mode: true,
+            input_height: 120.0,
+            dragging_input: false,
         };
 
         // 先尝试加载聊天列表
@@ -727,6 +733,8 @@ impl Clone for ChatApp {
             role_model_name: self.role_model_name.clone(),
             role_temperature: self.role_temperature,
             clear_chat_mode: self.clear_chat_mode,
+            input_height: self.input_height,
+            dragging_input: self.dragging_input,
         }
     }
 }
@@ -946,8 +954,7 @@ impl eframe::App for ChatApp {
         // 修改中央面板，移除顶部的连续聊天项
         egui::CentralPanel::default().show(ctx, |ui| {
             let total_height = ui.available_height();
-            let input_height = 120.0;
-            let history_height = total_height - input_height;
+            let history_height = total_height - self.input_height;
 
             ui.vertical(|ui| {
                 // 设置面板现在显示在左侧面板上
@@ -1117,16 +1124,50 @@ impl eframe::App for ChatApp {
                         }
                     });
 
-                // 输入区
+                // 添加一个可拖动的分隔条
+                let separator_height = 1.0;
+                let (rect, response) = ui.allocate_exact_size(
+                    egui::vec2(ui.available_width(), separator_height),
+                    egui::Sense::drag(),
+                );
+
+                // 绘制分隔条
+                if ui.is_rect_visible(rect) {
+                    let stroke = if response.hovered() || response.dragged() {
+                        ui.style().visuals.selection.stroke
+                    } else {
+                        ui.style().visuals.widgets.noninteractive.bg_stroke
+                    };
+                    ui.painter().rect(rect, 0.0, ui.style().visuals.window_fill(), stroke);
+                }
+
+                // 处理拖动逻辑
+                if response.hovered() {
+                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeVertical);
+                }
+
+                // 使用拖动增量来调整高度
+                let delta = response.drag_delta();  // drag_delta() 直接返回 Vec2
+                self.input_height = (self.input_height - delta.y)
+                    .clamp(80.0, total_height * 0.8);
+
+                // 添加视觉反馈
+                if response.hovered() || response.dragged() {
+                    let stroke = ui.style().visuals.selection.stroke;
+                    let stroke = egui::Stroke::new(2.0, stroke.color);  // 创建新的 Stroke 来设置宽度
+                    ui.painter().line_segment(
+                        [rect.left_center(), rect.right_center()],
+                        stroke,
+                    );
+                }
+
+                // 输入区域
                 ui.horizontal(|ui| {
                     let available_width = ui.available_width();
 
                     // 修改输入区域的布局
                     ui.vertical(|ui| {
-                        // 添加分割线
-                        ui.separator();
-
-                        // 图片上传按钮、文件名显示和模型选择放在上方
+                        // 图片上传按钮和文件名显示
                         ui.horizontal(|ui| {
                             if ui.small_button("\u{f0c6}").clicked() {
                                 if let Some(path) = FileDialog::new()
@@ -1158,9 +1199,9 @@ impl eframe::App for ChatApp {
                             }
                         });
 
-                        // 将输入框放在 ScrollArea 中，并设置固定高度
+                        // 将输入框放在 ScrollArea 中，使用动态高度
                         ScrollArea::vertical()
-                            .min_scrolled_height(80.0)
+                            .min_scrolled_height(self.input_height - 40.0) // 减去按钮和间距的高度
                             .show(ui, |ui| {
                                 let text_edit = TextEdit::multiline(&mut self.input_text)
                                     .desired_width(available_width) // 减小宽度以适应滚动条
