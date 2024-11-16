@@ -766,11 +766,14 @@ impl eframe::App for ChatApp {
                         ui.vertical(|ui| {
                             // 顶部区域
                             ui.add_space(5.0);
-                            ui.horizontal(|ui| {
-                                if ui.small_button("\u{f067}").clicked() {
-                                    self.new_chat();
-                                }
-                            });
+                            // 删除这部分代码
+                            // ui.horizontal(|ui| {
+                            //     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            //         if ui.small_button("\u{f067}").clicked() {
+                            //             self.new_chat();
+                            //         }
+                            //     });
+                            // });
 
                             ui.separator();
 
@@ -957,6 +960,16 @@ impl eframe::App for ChatApp {
             let history_height = total_height - self.input_height;
 
             ui.vertical(|ui| {
+                // 添加顶部栏
+                ui.horizontal(|ui| {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.small_button("\u{f067}").clicked() {
+                            self.new_chat();
+                        }
+                    });
+                });
+                ui.separator();
+
                 // 设置面板现在显示在左侧面板上
                 if self.show_settings {
                     // 只在设置首次打开时打印日志
