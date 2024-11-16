@@ -1124,21 +1124,43 @@ impl eframe::App for ChatApp {
                         }
                     });
 
-                // 添加一个可拖动的分隔条
-                let separator_height = 1.0;
+                // 修改分隔条的部分
+                let separator_height = 0.0;
+                let full_width = ui.available_width() + 20.0;
                 let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), separator_height),
+                    egui::vec2(full_width, separator_height),
                     egui::Sense::drag(),
                 );
 
                 // 绘制分隔条
                 if ui.is_rect_visible(rect) {
-                    let stroke = if response.hovered() || response.dragged() {
-                        ui.style().visuals.selection.stroke
-                    } else {
-                        ui.style().visuals.widgets.noninteractive.bg_stroke
-                    };
-                    ui.painter().rect(rect, 0.0, ui.style().visuals.window_fill(), stroke);
+                    // 创建向左偏移的矩形
+                    let adjusted_rect = egui::Rect::from_min_size(
+                        egui::pos2(rect.min.x - 10.0, rect.min.y),
+                        egui::vec2(full_width, separator_height)
+                    );
+                    
+                    // 基础线条
+                    let base_stroke = ui.style().visuals.widgets.noninteractive.bg_stroke;
+                    ui.painter().rect(
+                        adjusted_rect,
+                        0.0,
+                        ui.style().visuals.window_fill(),
+                        base_stroke,
+                    );
+
+                    // hover 效果
+                    if response.hovered() || response.dragged() {
+                        let hover_stroke = ui.style().visuals.selection.stroke;
+                        let hover_stroke = egui::Stroke::new(2.0, hover_stroke.color);
+                        ui.painter().line_segment(
+                            [
+                                egui::pos2(rect.left() - 10.0, rect.center().y),
+                                egui::pos2(rect.right(), rect.center().y)
+                            ],
+                            hover_stroke,
+                        );
+                    }
                 }
 
                 // 处理拖动逻辑
