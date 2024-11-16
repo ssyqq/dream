@@ -1157,7 +1157,7 @@ impl eframe::App for ChatApp {
                                 self.selected_image = None;
                             }
                         });
-                        ui.separator();
+
                         // 将输入框放在 ScrollArea 中，并设置固定高度
                         ScrollArea::vertical()
                             .min_scrolled_height(80.0)

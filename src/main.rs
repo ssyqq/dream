@@ -25,89 +25,46 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(move |cc| {
             let mut fonts = FontDefinitions::default();
 
-            // 添加字体
-            #[cfg(target_os = "windows")]
-            {
-                // fa solid
-                fonts.font_data.insert(
-                    "fa-solid".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\fa-solid-900.ttf"
-                    )),
-                );
+            fonts.families.clear(); // 清除所有默认字体族
 
-                // harmonyos font
-                fonts.font_data.insert(
-                    "harmonyos".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\HARMONYOS_SANS_SC_REGULAR.TTF"
-                    )),
-                );
+            // 添加 fa solid 字体
+            fonts.font_data.insert(
+                "fa-solid".to_owned(),
+                egui::FontData::from_static(include_bytes!(".././assets/fonts/fa6-900.otf")),
+            );
 
-                // JetBrains Mono Nerd Font
-                fonts.font_data.insert(
+            // 添加 PingFang SC 字体（macOS 系统字体）
+            fonts.font_data.insert(
+                "PingFang-SC".to_owned(),
+                egui::FontData::from_static(include_bytes!("../assets/fonts/pfsc.otf")),
+            );
+
+            // 添加jetbrains mono字体
+            fonts.font_data.insert(
+                "jetbrains".to_owned(),
+                egui::FontData::from_static(include_bytes!(
+                    "../assets/fonts/jetbrains-regular.ttf"
+                )),
+            );
+
+            fonts.families.insert(
+                FontFamily::Proportional,
+                vec![
                     "jetbrains".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        r"c:\USERS\AIMER\APPDATA\LOCAL\MICROSOFT\WINDOWS\FONTS\JETBRAINSMONONERDFONT-REGULAR.TTF"
-                    )),
-                );
-                // 完全覆盖默认字体族设置
-                fonts.families.clear(); // 清除所有默认字体族
-
-                // 设置新的字体族
-                fonts.families.insert(
-                    FontFamily::Proportional,
-                    vec!["harmonyos".to_owned(), "fa-solid".to_owned()],
-                );
-
-                fonts.families.insert(
-                    FontFamily::Monospace,
-                    vec!["jetbrains".to_owned(), "harmonyos".to_owned()],
-                );
-            }
-
-            #[cfg(target_os = "macos")]
-            {
-                fonts.families.clear(); // 清除所有默认字体族
-
-                // 添加 fa solid 字体
-                fonts.font_data.insert(
                     "fa-solid".to_owned(),
-                    egui::FontData::from_static(include_bytes!(".././assets/fonts/fa6-900.otf")),
-                );
-
-                // 添加 PingFang SC 字体（macOS 系统字体）
-                fonts.font_data.insert(
                     "PingFang-SC".to_owned(),
-                    egui::FontData::from_static(include_bytes!("../assets/fonts/pfsc.otf")),
-                );
+                ],
+            );
 
-                // 添加jetbrains mono字体
-                fonts.font_data.insert(
+            fonts.families.insert(
+                FontFamily::Monospace,
+                vec![
                     "jetbrains".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        "../assets/fonts/jetbrains-regular.ttf"
-                    )),
-                );
+                    "fa-solid".to_owned(),
+                    "PingFang-SC".to_owned(),
+                ],
+            );
 
-                fonts.families.insert(
-                    FontFamily::Proportional,
-                    vec![
-                        "jetbrains".to_owned(),
-                        "fa-solid".to_owned(),
-                        "PingFang-SC".to_owned(),
-                    ],
-                );
-
-                fonts.families.insert(
-                    FontFamily::Monospace,
-                    vec![
-                        "jetbrains".to_owned(),
-                        "fa-solid".to_owned(),
-                        "PingFang-SC".to_owned(),
-                    ],
-                );
-            }
             cc.egui_ctx.set_fonts(fonts);
 
             let app = ChatApp::new(runtime);
