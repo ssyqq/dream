@@ -1185,16 +1185,7 @@ impl eframe::App for ChatApp {
                 self.input_height = (self.input_height - delta.y)
                     .clamp(80.0, total_height * 0.8);
 
-                // // 添加视觉反馈
-                // if response.hovered() || response.dragged() {
-                //     let stroke = ui.style().visuals.selection.stroke;
-                //     let stroke = egui::Stroke::new(2.0, stroke.color);  // 创建新的 Stroke 来设置宽度
-                //     ui.painter().line_segment(
-                //         [rect.left_center(), rect.right_center()],
-                //         stroke,
-                //     );
-                // }
-
+                ui.add_space(5.0);
                 // 输入区域
                 ui.horizontal(|ui| {
                     let available_width = ui.available_width();
@@ -1235,11 +1226,11 @@ impl eframe::App for ChatApp {
 
                         // 将输入框放在 ScrollArea 中，使用动态高度
                         ScrollArea::vertical()
-                            .min_scrolled_height(self.input_height - 40.0) // 减去按钮和间距的高度
+                            .min_scrolled_height(self.input_height - 40.0)
                             .show(ui, |ui| {
                                 let text_edit = TextEdit::multiline(&mut self.input_text)
-                                    .desired_width(available_width) // 减小宽度以适应滚动条
-                                    .desired_rows(4)  // 减少默认行数
+                                    .desired_width(available_width)
+                                    .desired_rows(4)
                                     .frame(false);
 
                                 let text_edit_response = ui.add(text_edit);
