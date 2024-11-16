@@ -73,22 +73,20 @@ fn main() -> Result<(), eframe::Error> {
                 // 添加 fa solid 字体
                 fonts.font_data.insert(
                     "fa-solid".to_owned(),
-                    egui::FontData::from_static(include_bytes!("/Users/ls/Downloads/fontawesome-free-6.6.0-desktop/otfs/Font Awesome 6 Free-Solid-900.otf")),
+                    egui::FontData::from_static(include_bytes!(".././assets/fonts/fa6-900.otf")),
                 );
 
                 // 添加 PingFang SC 字体（macOS 系统字体）
                 fonts.font_data.insert(
                     "PingFang-SC".to_owned(),
-                    egui::FontData::from_static(include_bytes!(
-                        "/Users/ls/Downloads/PingFangSC-Regular.otf"
-                    )),
+                    egui::FontData::from_static(include_bytes!("../assets/fonts/pfsc.otf")),
                 );
 
                 // 添加jetbrains mono字体
                 fonts.font_data.insert(
                     "jetbrains".to_owned(),
                     egui::FontData::from_static(include_bytes!(
-                        "/Users/ls/Library/Fonts/JetBrainsMonoNerdFontMono-Regular.ttf"
+                        "../assets/fonts/jetbrains-regular.ttf"
                     )),
                 );
 
