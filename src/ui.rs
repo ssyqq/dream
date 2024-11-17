@@ -692,7 +692,7 @@ impl ChatApp {
                 }
             }
         } else {
-            // 仅清空内存模式��添加分隔线消息
+            // 仅清空内存模式添加分隔线消息
             self.chat_history.add_message(Message::new_assistant(
                 "--------------------------- 历史记录分割线 ---------------------------"
                     .to_string(),
@@ -1140,77 +1140,77 @@ impl eframe::App for ChatApp {
                 self.previous_show_settings = self.show_settings;
 
                 // 输入区域
-                ui.horizontal(|ui| {
-                    let available_width = ui.available_width();
-                    let available_height = ctx.available_rect().height();
+                ui.vertical(|ui| {
+                    ui.horizontal(|ui| {
+                        let available_height = ctx.available_rect().height();
 
-                    // 修改输入区域的布局
-                    ui.vertical(|ui| {
-                        // 图片上传按钮和文件名显示
-                        ui.horizontal(|ui| {
-                            if ui.small_button("\u{f0c6}").clicked() {
-                                if let Some(path) = FileDialog::new()
-                                    .add_filter("图片", &["png", "jpg", "jpeg"])
-                                    .pick_file()
-                                {
-                                    self.selected_image = Some(path.clone());
-                                    let runtime_handle = self.runtime_handle.clone();
-                                    self.processing_image = Some(runtime_handle.spawn(async move {
-                                        utils::copy_to_cache(&path).await
-                                    }));
+                        // 修改输入区域的布局
+                        ui.vertical(|ui| {
+                            // 图片上传按钮和文件名显示
+                            ui.horizontal(|ui| {
+                                if ui.small_button("\u{f0c6}").clicked() {
+                                    if let Some(path) = FileDialog::new()
+                                        .add_filter("图片", &["png", "jpg", "jpeg"])
+                                        .pick_file()
+                                    {
+                                        self.selected_image = Some(path.clone());
+                                        let runtime_handle = self.runtime_handle.clone();
+                                        self.processing_image = Some(runtime_handle.spawn(async move {
+                                            utils::copy_to_cache(&path).await
+                                        }));
+                                    }
                                 }
-                            }
 
-                            // 显示图片文件名和删除按钮
-                            let mut should_clear_image = false;
-                            if let Some(path) = &self.selected_image {
-                                if let Some(file_name) = path.file_name() {
-                                    if let Some(name) = file_name.to_str() {
-                                        ui.label(name);
-                                        if ui.small_button("\u{f00d}").clicked() {
-                                            should_clear_image = true;
+                                // 显示图片文件名和删除按钮
+                                let mut should_clear_image = false;
+                                if let Some(path) = &self.selected_image {
+                                    if let Some(file_name) = path.file_name() {
+                                        if let Some(name) = file_name.to_str() {
+                                            ui.label(name);
+                                            if ui.small_button("\u{f00d}").clicked() {
+                                                should_clear_image = true;
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            if should_clear_image {
-                                self.selected_image = None;
-                            }
-                        });
-
-                        debug!("available_height: {}", available_height);
-                        
-                        // 使用计算出的高度
-                        ScrollArea::both()
-                            .auto_shrink([false; 2])
-                            .min_scrolled_height(available_height - 35.0)
-                            .show(ui, |ui| {
-                                let text_edit = TextEdit::multiline(&mut self.input_text)
-                                    // 根据可用高度计算期望的行数
-                                    .desired_rows(((available_height - 35.0) / 20.0) as usize)
-                                    .desired_width(ui.available_width()) // 20.0是每行文本的近似高度
-                                    .frame(true);
-
-                                let text_edit_response = ui.add(text_edit);
-
-                                // 如果需要聚焦且输入框还没有焦点
-                                if self.input_focus && !text_edit_response.has_focus() {
-                                    text_edit_response.request_focus();
-                                }
-                                // 一旦获得焦点，将 input_focus 设置为 false
-                                if text_edit_response.has_focus() {
-                                    self.input_focus = false;
-                                }
-
-                                // 检查 Enter 键发送
-                                if (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
-                                    && text_edit_response.has_focus())
-                                    && (!self.input_text.is_empty() || self.selected_image.is_some())
-                                {
-                                    self.send_message();
-                                    self.input_focus = true;
+                                if should_clear_image {
+                                    self.selected_image = None;
                                 }
                             });
+
+                            debug!("available_height: {}", available_height);
+                            
+                            // 使用计算出的高度，并减去底部空白的 40 像素
+                            ScrollArea::both()
+                                .auto_shrink([false; 2])
+                                .min_scrolled_height(available_height - 40.0) // 减去顶部和底部的空间
+                                .show(ui, |ui| {
+                                    let text_edit = TextEdit::multiline(&mut self.input_text)
+                                        .desired_rows(((available_height - 40.0) / 20.0) as usize)
+                                        .desired_width(ui.available_width())
+                                        .frame(true);
+
+                                    let text_edit_response = ui.add(text_edit);
+
+                                    // 如果需要聚焦且输入框还没有焦点
+                                    if self.input_focus && !text_edit_response.has_focus() {
+                                        text_edit_response.request_focus();
+                                    }
+                                    // 一旦获得焦点，将 input_focus 设置为 false
+                                    if text_edit_response.has_focus() {
+                                        self.input_focus = false;
+                                    }
+
+                                    // 检查 Enter 键发送
+                                    if (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
+                                        && text_edit_response.has_focus())
+                                        && (!self.input_text.is_empty() || self.selected_image.is_some())
+                                    {
+                                        self.send_message();
+                                        self.input_focus = true;
+                                    }
+                                });
+                        });
                     });
 
                     // 将清空按钮移到右侧
