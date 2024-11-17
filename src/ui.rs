@@ -764,19 +764,6 @@ impl eframe::App for ChatApp {
                         ui.set_min_height(available_height);
 
                         ui.vertical(|ui| {
-                            // 顶部区域
-                            ui.add_space(5.0);
-                            // 删除这部分代码
-                            // ui.horizontal(|ui| {
-                            //     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            //         if ui.small_button("\u{f067}").clicked() {
-                            //             self.new_chat();
-                            //         }
-                            //     });
-                            // });
-
-                            ui.separator();
-
                             // 聊天列表区域 - 设置为充满剩余空间
                             ScrollArea::vertical()
                                 .auto_shrink([false; 2])
@@ -823,9 +810,7 @@ impl eframe::App for ChatApp {
 
                                     // 添加分割线
                                     if !role_chats.is_empty() && !normal_chats.is_empty() {
-                                        ui.add_space(4.0);
                                         ui.separator();
-                                        ui.add_space(4.0);
                                     }
 
                                     // 显示普通聊天（反转顺序）
