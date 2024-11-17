@@ -957,7 +957,7 @@ impl eframe::App for ChatApp {
         egui::TopBottomPanel::top("top_panel")
             .resizable(true)
             .height_range(350.0..=500.0)
-            .default_height(400.0)
+            .default_height(500.0)
             .show(ctx, |ui| {
                 // 添加顶部栏
                 ui.horizontal(|ui| {
@@ -1188,7 +1188,7 @@ impl eframe::App for ChatApp {
                                     let text_edit = TextEdit::multiline(&mut self.input_text)
                                         .desired_rows(((available_height - 40.0) / 20.0) as usize)
                                         .desired_width(ui.available_width())
-                                        .frame(true);
+                                        .frame(false);
 
                                     let text_edit_response = ui.add(text_edit);
 
