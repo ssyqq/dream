@@ -692,7 +692,7 @@ impl ChatApp {
                 }
             }
         } else {
-            // 仅清空内存模式：添加分隔线消息
+            // 仅清空内存模式��添加分隔线消息
             self.chat_history.add_message(Message::new_assistant(
                 "--------------------------- 历史记录分割线 ---------------------------"
                     .to_string(),
@@ -954,12 +954,11 @@ impl eframe::App for ChatApp {
                 }
             });
 
-        // 修改中央面板，移除顶部的连续聊天项
-        egui::CentralPanel::default().show(ctx, |ui| {
-            let total_height = ui.available_height();
-            let history_height = total_height - self.input_height;
-
-            ui.vertical(|ui| {
+        egui::TopBottomPanel::top("top_panel")
+            .resizable(true)
+            .height_range(350.0..=500.0)
+            .default_height(400.0)
+            .show(ctx, |ui| {
                 // 添加顶部栏
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -970,6 +969,26 @@ impl eframe::App for ChatApp {
                 });
                 ui.separator();
 
+                // 聊天历史记录区域
+                ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .stick_to_bottom(true)
+                    .show(ui, |ui| {
+                        let messages = self.chat_history.0.clone();
+                        for (i, msg) in messages.iter().enumerate() {
+                            if i > 0 && i % 2 == 0 {
+                                ui.add_space(4.0);
+                                ui.separator();
+                                ui.add_space(4.0);
+                            }
+                            self.display_message(ui, msg);
+                        }
+                    });
+            });
+
+        // 修改中央面板，移除顶部的连续聊天项
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.vertical(|ui| {
                 // 设置面板现在显示在左侧面板上
                 if self.show_settings {
                     // 只在设置首次打开时打印日志
@@ -1120,88 +1139,10 @@ impl eframe::App for ChatApp {
                 // 更新上一次的状态
                 self.previous_show_settings = self.show_settings;
 
-                // 聊天历史记录区域
-                ScrollArea::vertical()
-                    .auto_shrink([false; 2])
-                    .stick_to_bottom(true)
-                    .max_height(history_height)
-                    .show(ui, |ui| {
-                        let messages = self.chat_history.0.clone();
-                        for (i, msg) in messages.iter().enumerate() {
-                            if i > 0 && i % 2 == 0 {
-                                ui.add_space(4.0);
-                                ui.separator();
-                                ui.add_space(4.0);
-                            }
-                            self.display_message(ui, msg);
-                        }
-                    });
-
-                // 修改分隔条的部分
-                let separator_height = 0.1;
-                let full_width = ui.available_width() + 20.0;
-                let (rect, response) = ui.allocate_exact_size(
-                    egui::vec2(full_width, separator_height),
-                    egui::Sense::drag(),
-                );
-
-                // 绘制分隔条
-                if ui.is_rect_visible(rect) {
-                    // 创建向左偏移的矩形
-                    let adjusted_rect = egui::Rect::from_min_size(
-                        egui::pos2(rect.min.x - 10.0, rect.min.y),
-                        egui::vec2(full_width, separator_height)
-                    );
-
-                    // hover 效果
-                    if response.hovered() || response.dragged() {
-                        // hover 效果 - 根据主题切换颜色
-                        let hover_color = if self.dark_mode {
-                            egui::Color32::WHITE  // 暗色模式下使用白色
-                        } else {
-                            egui::Color32::BLACK  // 亮色模式下使用黑色
-                        };
-
-                        // 根据拖动状态决定线条粗细
-                        let line_width = if response.dragged() {
-                            2.2  // 拖动时线条更粗
-                        } else {
-                            1.5  // 普通悬停时保持原有粗细
-                        };
-
-                        let hover_stroke = egui::Stroke::new(line_width, hover_color);
-                        ui.painter().line_segment(
-                            [
-                                egui::pos2(rect.left() - 10.0, rect.center().y),
-                                egui::pos2(rect.right(), rect.center().y)
-                            ],
-                            hover_stroke,
-                        );
-                    } else { 
-                        // 基础线条
-                        let base_stroke = ui.style().visuals.widgets.noninteractive.bg_stroke;
-                        ui.painter().rect(
-                            adjusted_rect,
-                            0.0,
-                            ui.style().visuals.window_fill(),
-                            base_stroke,
-                        );
-                    }
-                }
-                // 处理拖动逻辑
-                if response.hovered() {
-                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeVertical);
-                }
-
-                // 使用拖动增量来调整高度
-                let delta = response.drag_delta();  // drag_delta() 直接返回 Vec2
-                self.input_height = (self.input_height - delta.y)
-                    .clamp(80.0, total_height * 0.8);
-
-                ui.add_space(5.0);
                 // 输入区域
                 ui.horizontal(|ui| {
                     let available_width = ui.available_width();
+                    let available_height = ctx.available_rect().height();
 
                     // 修改输入区域的布局
                     ui.vertical(|ui| {
@@ -1237,14 +1178,18 @@ impl eframe::App for ChatApp {
                             }
                         });
 
-                        // 将输入框放在 ScrollArea 中，使用动态高度
-                        ScrollArea::vertical()
-                            .min_scrolled_height(self.input_height - 40.0)
+                        debug!("available_height: {}", available_height);
+                        
+                        // 使用计算出的高度
+                        ScrollArea::both()
+                            .auto_shrink([false; 2])
+                            .min_scrolled_height(available_height - 35.0)
                             .show(ui, |ui| {
                                 let text_edit = TextEdit::multiline(&mut self.input_text)
-                                    .desired_width(available_width)
-                                    .desired_rows(4)
-                                    .frame(false);
+                                    // 根据可用高度计算期望的行数
+                                    .desired_rows(((available_height - 35.0) / 20.0) as usize)
+                                    .desired_width(ui.available_width()) // 20.0是每行文本的近似高度
+                                    .frame(true);
 
                                 let text_edit_response = ui.add(text_edit);
 
@@ -1266,8 +1211,6 @@ impl eframe::App for ChatApp {
                                     self.input_focus = true;
                                 }
                             });
-
-                        ui.add_space(4.0); // 添加一点底部间距
                     });
 
                     // 将清空按钮移到右侧
@@ -1293,7 +1236,6 @@ impl eframe::App for ChatApp {
                     });
                 });
             });
-
             // 处理消息接收器 - 每帧最多处理一条消息
             if let Some(receiver) = &mut self.receiver {
                 if let Ok(response) = receiver.try_recv() {  // 只获取一条消息
