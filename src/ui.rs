@@ -46,6 +46,10 @@ pub struct ChatApp {
     pub clear_chat_mode: bool,
     pub input_height: f32,
     pub dragging_input: bool,
+    pub search_query: String,
+    pub is_loading: bool,
+    pub loading_dots: String,
+    pub loading_animation_timer: f32,
 }
 
 impl Default for ChatApp {
@@ -97,6 +101,10 @@ impl Default for ChatApp {
             clear_chat_mode: true,
             input_height: 120.0,
             dragging_input: false,
+            search_query: String::new(),
+            is_loading: false,
+            loading_dots: String::new(),
+            loading_animation_timer: 0.0,
         };
 
         // 先尝试加载聊天列表
@@ -179,6 +187,10 @@ impl ChatApp {
             clear_chat_mode: true,
             input_height: 120.0,
             dragging_input: false,
+            search_query: String::new(),
+            is_loading: false,
+            loading_dots: String::new(),
+            loading_animation_timer: 0.0,
         };
 
         // 先尝试加载聊天列表
@@ -291,6 +303,8 @@ impl ChatApp {
 
     fn send_message(&mut self) {
         debug!("开始发送消息");
+        self.is_loading = true; // 设置加载状态
+        self.loading_dots.clear();
         let user_input = std::mem::take(&mut self.input_text);
         let image_path = self.selected_image.take();
 
@@ -394,7 +408,7 @@ impl ChatApp {
             false
         };
 
-        debug!("准备发消息，是否包含图片: {}", image_path.is_some());
+        debug!("准备发消息，是���包含图片: {}", image_path.is_some());
 
         // 创建通道
         let (tx, rx) = mpsc::unbounded_channel();
@@ -425,7 +439,7 @@ impl ChatApp {
             let cached_image_path = if let Some(path) = image_path {
                 // 如果已经有理的图片路径，直接使用它
                 if let Some(ref processed_path) = new_message.image_path {
-                    debug!("使用已处理的缓图片: {:?}", processed_path);
+                    debug!("使用已处理的缓图: {:?}", processed_path);
                     Some(PathBuf::from(processed_path))
                 } else {
                     // 否则才进行处理
@@ -504,8 +518,8 @@ impl ChatApp {
 
             // 在等待助手回复完成后再生成标题
             if should_generate_title {
-                debug!("需要生成标题，当前对话ID: {:?}", chat_id);
-                // 使用克隆的 chat_history 而不是 self.chat_history
+                debug!("需要生成标题，当对话ID: {:?}", chat_id);
+                // 使克隆的 chat_history 而不是 self.chat_history
                 let assistant_response = chat_history.last()
                     .filter(|msg| msg.role == "assistant")
                     .map(|msg| msg.content.clone())
@@ -577,16 +591,16 @@ impl ChatApp {
                     }
                 }
             } else {
-                debug!("不需要生成标题");
+                debug!("不需要生成题");
             }
         });
     }
 
     fn handle_message_selection(&mut self, messages: Vec<Message>) {
-        debug!("选择消息: {} 条", messages.len());
+        debug!("选择消息: {} ", messages.len());
         self.chat_history.0 = messages;
 
-        // 不再在这里修改全局配置
+        // 不再在这里修改全配置
         // 只需要加载消息历史即可
         // 发送消息时会自动使用角色的配置
     }
@@ -613,9 +627,9 @@ impl ChatApp {
                 });
                 ui.add_space(4.0);
 
-                // 构建包含图片的 markdown 内容
+                // 构建包含图片的 markdown 内
                 let content = if let Some(path) = &msg.image_path {
-                    // 直接使用 markdown 图片语法
+                    // 直接使用 markdown 图片法
                     format!("{}\n\n![image]({})", msg.content, path)
                 } else {
                     msg.content.clone()
@@ -735,6 +749,10 @@ impl Clone for ChatApp {
             clear_chat_mode: self.clear_chat_mode,
             input_height: self.input_height,
             dragging_input: self.dragging_input,
+            search_query: self.search_query.clone(),
+            is_loading: self.is_loading,
+            loading_dots: self.loading_dots.clone(),
+            loading_animation_timer: self.loading_animation_timer,
         }
     }
 }
@@ -764,6 +782,26 @@ impl eframe::App for ChatApp {
                         ui.set_min_height(available_height);
 
                         ui.vertical(|ui| {
+                            // 在顶部添加空白
+                            ui.add_space(6.0);  // 可以调整这个数值来改变空白的大小
+
+                            // 搜索区域
+                            ui.horizontal(|ui| {
+                                let total_width = ui.available_width();
+                                
+                                // 创建一个带边框的框架，但不设置背景色
+                                egui::Frame::none()
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            // 搜索输入框 - 保持框架
+                                            ui.add(TextEdit::singleline(&mut self.search_query)
+                                                .desired_width(total_width)  // 使用全部可用宽度
+                                                .hint_text("\u{f002} 搜索..."));
+                                        });
+                                    });
+                            });
+                            ui.separator();
+
                             // 聊天列表区域 - 设置为充满剩余空间
                             ScrollArea::vertical()
                                 .auto_shrink([false; 2])
@@ -777,6 +815,20 @@ impl eframe::App for ChatApp {
                                         .chat_list
                                         .chats
                                         .iter()
+                                        .filter(|chat| {
+                                            if self.search_query.is_empty() {
+                                                return true;
+                                            }
+                                            let query = self.search_query.to_lowercase();
+                                            // 检查聊天标题
+                                            if chat.name.to_lowercase().contains(&query) {
+                                                return true;
+                                            }
+                                            // 检查聊天内容
+                                            chat.messages.iter().any(|msg| 
+                                                msg.content.to_lowercase().contains(&query)
+                                            )
+                                        })
                                         .partition(|chat| chat.name.starts_with("\u{f544}"));
 
                                     // 对普通聊天按更新时间排序（新的在前）
@@ -945,6 +997,7 @@ impl eframe::App for ChatApp {
             .default_height(500.0)
             .show(ctx, |ui| {
                 // 添加顶部栏
+                ui.add_space(7.0);  // 在顶部添加空白
                 ui.horizontal(|ui| {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui.small_button("\u{f067}").clicked() {
@@ -952,6 +1005,7 @@ impl eframe::App for ChatApp {
                         }
                     });
                 });
+                ui.add_space(2.0); 
                 ui.separator();
 
                 // 聊天历史记录区域
@@ -967,6 +1021,27 @@ impl eframe::App for ChatApp {
                                 ui.add_space(4.0);
                             }
                             self.display_message(ui, msg);
+                        }
+
+                        // 在消息列表底部显示加载状态
+                        if self.is_loading {
+                            // 更新加载动画
+                            self.loading_animation_timer += ui.input(|i| i.unstable_dt);
+                            if self.loading_animation_timer >= 0.5 {
+                                self.loading_animation_timer = 0.0;
+                                self.loading_dots.push('.');
+                                if self.loading_dots.len() > 3 {
+                                    self.loading_dots.clear();
+                                }
+                            }
+
+                            ui.add_space(8.0);
+                            ui.horizontal(|ui| {
+                                ui.spinner(); // 添加旋转的加载图标
+                                ui.label(RichText::new(format!("AI思考中{}", self.loading_dots))
+                                    .italics()
+                                    .color(egui::Color32::GRAY));
+                            });
                         }
                     });
             });
@@ -1053,7 +1128,7 @@ impl eframe::App for ChatApp {
                                     }
                                     ui.end_row();
 
-                                    // 添加模型管理部分
+                                    // 添加模型管部分
                                     ui.label("常用模:");
                                     ui.vertical(|ui| {
                                         // 显示现有模型列表
@@ -1073,7 +1148,7 @@ impl eframe::App for ChatApp {
                                             self.available_models.remove(*index);
                                         }
 
-                                        // 添加新模型的输入框
+                                        // 添加新模型的输框
                                         ui.horizontal(|ui| {
                                             if ui.text_edit_singleline(&mut self.new_model_input).lost_focus()
                                                 && ui.input(|i| i.key_pressed(egui::Key::Enter))
@@ -1085,7 +1160,7 @@ impl eframe::App for ChatApp {
                                                     config_changed = true;
                                                 }
                                             }
-                                            if ui.small_button("添加").clicked() && !self.new_model_input.is_empty() {
+                                            if ui.small_button("加").clicked() && !self.new_model_input.is_empty() {
                                                 if !self.available_models.contains(&self.new_model_input) {
                                                     self.available_models.push(self.new_model_input.clone());
                                                     self.new_model_input.clear();
@@ -1162,10 +1237,8 @@ impl eframe::App for ChatApp {
                                     self.selected_image = None;
                                 }
                             });
-
-                            debug!("available_height: {}", available_height);
                             
-                            // 使用计算出的高度，并减去底部空白的 40 像素
+                            // 使用计算的高度，并减去底部空白 40 像素
                             ScrollArea::both()
                                 .auto_shrink([false; 2])
                                 .min_scrolled_height(available_height - 40.0) // 减去顶部和底部的空间
@@ -1186,7 +1259,7 @@ impl eframe::App for ChatApp {
                                         self.input_focus = false;
                                     }
 
-                                    // 检查 Enter 键发送
+                                    // 检查 Enter 键送
                                     if (ui.input(|i| i.key_pressed(egui::Key::Enter) && !i.modifiers.shift)
                                         && text_edit_response.has_focus())
                                         && (!self.input_text.is_empty() || self.selected_image.is_some())
@@ -1200,7 +1273,7 @@ impl eframe::App for ChatApp {
 
                     // 将清空按钮移到右侧
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::TOP), |ui| {
-                        // 只在角色聊天中显示清空按钮
+                        // 在角色聊天中显示清空按钮
                         let should_clear = if let Some(current_id) = &self.chat_list.current_chat_id {
                             if let Some(chat) = self.chat_list.chats.iter().find(|c| &c.id == current_id) {
                                 chat.name.starts_with("\u{f544}")
@@ -1223,7 +1296,7 @@ impl eframe::App for ChatApp {
             });
             // 处理消息接收器 - 每帧最多处理一条消息
             if let Some(receiver) = &mut self.receiver {
-                if let Ok(response) = receiver.try_recv() {  // 只获取一条消息
+                if let Ok(response) = receiver.try_recv() {  // 获取一条消息
                     match response.as_str() {
                         "__CLEAR_ERRORS__" => {
                             // 清空最后一条消息如果它是错误提示
@@ -1255,7 +1328,7 @@ impl eframe::App for ChatApp {
                                         debug!("找到对应的聊天，更新标题");
                                         chat.name = title.to_string();
                                         chat.has_been_renamed = true;
-                                        chat.messages = self.chat_history.0.clone();  // 同更新消息历史
+                                        chat.messages = self.chat_history.0.clone();  // 同消息历史
 
                                         // 保存更新后的聊天列表
                                         if let Err(e) = self.save_chat_list() {
@@ -1267,6 +1340,8 @@ impl eframe::App for ChatApp {
                         }
                         "__STREAM_DONE__" => {
                             debug!("流式响应完成");
+                            self.is_loading = false; // 清除加载状态
+                            self.loading_dots.clear();
                             if let Some(current_id) = &self.chat_list.current_chat_id {
                                 if let Some(chat) = self.chat_list.chats
                                     .iter_mut()
@@ -1277,7 +1352,7 @@ impl eframe::App for ChatApp {
                                     // 在这里生成标题
                                     if !chat.has_been_renamed {
                                         debug!("开始生成标题");
-                                        // 获取用户输入和完整的助手回复
+                                        // 获取用户输入和完整的助手回
                                         let user_input = chat.messages.iter()
                                             .find(|msg| msg.role == "user")
                                             .map(|msg| msg.content.clone())
@@ -1362,7 +1437,7 @@ impl eframe::App for ChatApp {
                                             }
                                         });
 
-                                        // 设置新的接收器
+                                        // 设置新的接器
                                         self.receiver = Some(rx);
                                     }
 
